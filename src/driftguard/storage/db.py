@@ -28,6 +28,17 @@ CREATE TABLE IF NOT EXISTS deliveries (
     payload_json TEXT NOT NULL,
     received_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS drift_facts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id TEXT NOT NULL REFERENCES deliveries(delivery_id),
+    kind        TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    old         TEXT,
+    new         TEXT,
+    file        TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -82,3 +93,22 @@ def set_status(db_path: Path, delivery_id: str, status: str) -> None:
         conn.execute(
             "UPDATE deliveries SET status = ? WHERE delivery_id = ?", (status, delivery_id)
         )
+
+
+def save_facts(db_path: Path, delivery_id: str, facts: list[Any]) -> None:
+    """Persist extracted drift facts (accepts DriftFact instances)."""
+    with closing(_connect(db_path)) as conn, conn:
+        conn.executemany(
+            "INSERT INTO drift_facts (delivery_id, kind, symbol, old, new, file)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [(delivery_id, f.kind, f.symbol, f.old, f.new, f.file) for f in facts],
+        )
+
+
+def facts_for_delivery(db_path: Path, delivery_id: str) -> list[sqlite3.Row]:
+    with closing(_connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT kind, symbol, old, new, file FROM drift_facts"
+            " WHERE delivery_id = ? ORDER BY id",
+            (delivery_id,),
+        ).fetchall()

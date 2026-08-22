@@ -3,19 +3,21 @@
 This is the seam between the plumbing (webhook, storage) and the intelligence.
 The webhook returns 202 immediately and this runs afterwards, because GitHub
 gives a webhook ~10 seconds before it marks the delivery failed and retries —
-agent work will take longer than that.
+agent work takes longer than that.
 
-Week 1: log what we received and mark the delivery processed.
-Week 2 (Abdesslem): this is where the real work plugs in —
-    1. fetch the PR diff via the GitHub API
-    2. extract_drift_facts() on the changed Python files   (exercise 01)
-    3. invoke the LangGraph agent: search docs -> judge -> fix -> verify -> PR
+Current pipeline (week 1): fetch changed files -> extract drift facts -> persist.
+Week 2 plugs the LangGraph agent in after the facts: search docs -> judge ->
+fix -> verify -> open the docs PR.
 """
 
 import json
 import logging
 
+import httpx
+
+from driftguard.analysis.pipeline import analyze_pr
 from driftguard.config import Settings
+from driftguard.github.client import GitHubClient, GitHubError
 from driftguard.storage import db
 
 log = logging.getLogger("driftguard.agent")
@@ -28,16 +30,51 @@ def process_delivery(settings: Settings, delivery_id: str) -> None:
         return
 
     payload = json.loads(row["payload_json"])
-    pr = payload.get("pull_request") or {}
+    pull_request = payload.get("pull_request") or {}
     log.info(
-        "merged PR #%s on %s: %r by %s (+%s/-%s in %s files)",
+        "merged PR #%s on %s: %r by %s",
         row["pr_number"],
         row["repo"],
-        pr.get("title"),
-        (pr.get("user") or {}).get("login"),
-        pr.get("additions"),
-        pr.get("deletions"),
-        pr.get("changed_files"),
+        pull_request.get("title"),
+        (pull_request.get("user") or {}).get("login"),
     )
 
-    db.set_status(settings.database_path, delivery_id, "logged")
+    if not settings.github_token:
+        # Keeps the pipeline demoable without credentials (and replayable offline).
+        log.info("GITHUB_TOKEN not set — delivery archived, analysis skipped")
+        db.set_status(settings.database_path, delivery_id, "logged")
+        return
+
+    # base.sha = the commit the PR started from (old truth).
+    # merge_commit_sha = what actually landed on the default branch (new truth) —
+    # correct even for squash merges, where the PR head commit never lands.
+    base_ref = (pull_request.get("base") or {}).get("sha")
+    head_ref = pull_request.get("merge_commit_sha") or (pull_request.get("head") or {}).get("sha")
+    if not base_ref or not head_ref:
+        log.error("delivery %s: payload is missing base/head commit ids", delivery_id)
+        db.set_status(settings.database_path, delivery_id, "error")
+        return
+
+    try:
+        with GitHubClient(settings.github_token) as client:
+            facts = analyze_pr(
+                client,
+                repo=row["repo"],
+                number=row["pr_number"],
+                base_ref=base_ref,
+                head_ref=head_ref,
+            )
+    except (GitHubError, httpx.TransportError) as exc:
+        # Fail loudly into the delivery's status: the replay CLI can re-run it later.
+        log.error("delivery %s: GitHub analysis failed: %s", delivery_id, exc)
+        db.set_status(settings.database_path, delivery_id, "error")
+        return
+
+    db.save_facts(settings.database_path, delivery_id, facts)
+    db.set_status(settings.database_path, delivery_id, "facts_extracted")
+    log.info(
+        "delivery %s: %d drift fact(s): %s",
+        delivery_id,
+        len(facts),
+        [f"{fact.kind}:{fact.symbol}" for fact in facts],
+    )

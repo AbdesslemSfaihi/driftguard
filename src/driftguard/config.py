@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     github_webhook_secret: str = "dev-only-secret"
+    github_token: str = ""  # fine-grained PAT; empty = archive deliveries, skip analysis
     database_path: Path = Path("data/driftguard.db")
     log_level: str = "INFO"
 

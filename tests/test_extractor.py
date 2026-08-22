@@ -1,14 +1,6 @@
-"""Exercise 01 contract — make these pass, one at a time.
-
-Delete the `pytestmark` line below to activate them, then:
-    pytest tests/test_extractor.py -x
-"""
-
-import pytest
+"""Contract for the drift-fact extractor (v1 perimeter: module-level functions)."""
 
 from driftguard.analysis.extractor import DriftFact, extract_drift_facts
-
-pytestmark = pytest.mark.skip(reason="Exercise 01: delete this line and implement the extractor")
 
 
 def facts(old: str, new: str) -> list[DriftFact]:
@@ -71,3 +63,18 @@ def test_rename_plus_default_change_emits_both_facts():
     result = facts(old, new)
     kinds = sorted(fact.kind for fact in result)
     assert kinds == ["default_changed", "renamed"]
+
+
+def test_unparseable_source_produces_no_facts_instead_of_crashing():
+    # A false accusation costs developer trust (precision >= 90% is a v1 metric),
+    # so a file we cannot parse yields nothing rather than guesses.
+    old = "def connect(host):\n    ...\n"
+    broken = "def connect(host:\n"
+    assert facts(old, broken) == []
+    assert facts(broken, old) == []
+
+
+def test_methods_inside_classes_are_ignored_in_v1():
+    old = "class Client:\n    def connect(self, timeout=10):\n        ...\n"
+    new = "class Client:\n    def connect(self, timeout=30):\n        ...\n"
+    assert facts(old, new) == []
