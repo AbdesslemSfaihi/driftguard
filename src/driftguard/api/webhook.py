@@ -1,10 +1,13 @@
 import json
 import logging
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
 from driftguard import __version__
-from driftguard.agent.handler import process_delivery
+from driftguard.agent.handler import process_delivery, recover_pending
 from driftguard.api.security import verify_signature
 from driftguard.config import Settings, get_settings
 from driftguard.storage import db
@@ -18,7 +21,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level)
 
-    app = FastAPI(title="DriftGuard", version=__version__)
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # Deliveries accepted before a crash/restart are still in the archive at
+        # status 'received' — re-run them. In a daemon thread so a slow GitHub
+        # call can never hold /health (and new webhooks) hostage at startup.
+        threading.Thread(
+            target=recover_pending, args=(settings,), name="driftguard-recover", daemon=True
+        ).start()
+        yield
+
+    app = FastAPI(title="DriftGuard", version=__version__, lifespan=lifespan)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -41,7 +54,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if event == "ping":
             return {"status": "pong"}
 
-        payload = json.loads(body or b"{}")
+        try:
+            payload = json.loads(body or b"{}")
+        except json.JSONDecodeError as exc:
+            # Correctly signed but not JSON: a buggy sender, not a server bug — 400, not 500.
+            raise HTTPException(status_code=400, detail="body is not valid JSON") from exc
         action = payload.get("action")
         pull_request = payload.get("pull_request") or {}
 

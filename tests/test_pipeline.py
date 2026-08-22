@@ -114,3 +114,7 @@ def test_end_to_end_webhook_to_facts(tmp_path, monkeypatch):
     assert sorted(fact["kind"] for fact in facts) == ["default_changed", "renamed"]
     stored = json.loads(row["payload_json"])
     assert stored["pull_request"]["merge_commit_sha"] == HEAD_SHA
+
+    # Re-running (replay CLI, startup recovery) must converge, not duplicate.
+    handler.process_delivery(settings, "e2e-1")
+    assert len(db.facts_for_delivery(settings.database_path, "e2e-1")) == len(facts)

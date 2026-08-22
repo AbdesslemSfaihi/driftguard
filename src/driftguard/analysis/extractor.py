@@ -104,7 +104,30 @@ def extract_drift_facts(old_source: str, new_source: str, file_path: str) -> lis
             )
             continue
 
-        # Same arity: compare parameters position by position.
+        # Same arity: positional pairing lies when parameters were REORDERED —
+        # f(a, b) -> f(b, a) is not two renames. A true rename means the old
+        # name vanished and the new name is genuinely new; if either name still
+        # exists elsewhere in the other signature, emit one honest function-
+        # level fact instead of false per-parameter stories (precision first).
+        old_names = {p.name for p in old_sig.params}
+        new_names = {p.name for p in new_sig.params}
+        reordered = any(
+            o.name != n.name and (o.name in new_names or n.name in old_names)
+            for o, n in zip(old_sig.params, new_sig.params, strict=True)
+        )
+        if reordered:
+            facts.append(
+                DriftFact(
+                    "signature_changed",
+                    name,
+                    old=old_sig.render(),
+                    new=new_sig.render(),
+                    file=file_path,
+                )
+            )
+            continue
+
+        # Positional pairing is now trustworthy: compare name and default.
         for old_param, new_param in zip(old_sig.params, new_sig.params, strict=True):
             if old_param.name != new_param.name:
                 facts.append(

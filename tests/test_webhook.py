@@ -54,6 +54,46 @@ def test_missing_delivery_id_is_rejected(client):
     assert response.status_code == 400
 
 
+def test_signed_but_malformed_json_is_a_400_not_a_500(client):
+    from conftest import sign
+
+    body = b"{not json"
+    response = client.post(
+        "/webhooks/github",
+        content=body,
+        headers={
+            "X-Hub-Signature-256": sign(body),
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "bad-json-1",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_pending_deliveries_are_recovered(tmp_path):
+    """A delivery accepted before a crash sits at 'received'; recovery re-runs it."""
+    from driftguard.agent.handler import recover_pending
+    from driftguard.config import Settings
+    from driftguard.storage import db
+
+    settings = Settings(github_webhook_secret="s", database_path=tmp_path / "recover.db")
+    db.record_delivery(
+        settings.database_path,
+        delivery_id="lost-1",
+        event="pull_request",
+        action="closed",
+        repo="abdesslem/driftguard-demo",
+        pr_number=1,
+        payload=merged_pr_payload(),
+    )
+
+    assert recover_pending(settings) == 1
+    # No GITHUB_TOKEN in these settings -> the handler archives and stops.
+    assert db.get_delivery(settings.database_path, "lost-1")["status"] == "logged"
+    assert recover_pending(settings) == 0  # nothing pending twice
+
+
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200

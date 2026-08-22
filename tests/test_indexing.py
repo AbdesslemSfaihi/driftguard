@@ -102,6 +102,20 @@ def test_empty_index_returns_empty_results():
     assert index.search("anything") == []
 
 
+def test_load_with_a_different_embedding_model_is_refused(tmp_path):
+    import pytest
+
+    from driftguard.indexing.index import IndexModelMismatch
+
+    index = build_index()
+    index.save(tmp_path / "idx")
+
+    other = HashEmbedder()
+    other.model_name = "some-other-model"
+    with pytest.raises(IndexModelMismatch, match="rebuild the index"):
+        HybridIndex.load(tmp_path / "idx", other)
+
+
 def test_save_and_load_roundtrip(tmp_path):
     index = build_index()
     before = index.search("request_timeout", k=3)

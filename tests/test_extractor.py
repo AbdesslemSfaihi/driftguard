@@ -65,6 +65,24 @@ def test_rename_plus_default_change_emits_both_facts():
     assert kinds == ["default_changed", "renamed"]
 
 
+def test_swapped_parameters_are_one_signature_change_not_two_renames():
+    old = "def connect(host, port):\n    ...\n"
+    new = "def connect(port, host):\n    ...\n"
+    result = facts(old, new)
+    assert [fact.kind for fact in result] == ["signature_changed"]
+    assert result[0].old == "(host, port)"
+    assert result[0].new == "(port, host)"
+
+
+def test_rename_colliding_with_a_surviving_name_is_a_signature_change():
+    # a -> b while b already existed: positional "renames" would tell a false
+    # story (a renamed to b AND b renamed to c), so one honest fact instead.
+    old = "def connect(a, b):\n    ...\n"
+    new = "def connect(b, c):\n    ...\n"
+    result = facts(old, new)
+    assert [fact.kind for fact in result] == ["signature_changed"]
+
+
 def test_unparseable_source_produces_no_facts_instead_of_crashing():
     # A false accusation costs developer trust (precision >= 90% is a v1 metric),
     # so a file we cannot parse yields nothing rather than guesses.

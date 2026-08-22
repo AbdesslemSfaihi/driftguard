@@ -37,6 +37,10 @@ RRF_K = 60
 _TOKEN_RE = re.compile(r"[a-z0-9_]+")
 
 
+class IndexModelMismatch(RuntimeError):
+    """The saved index was embedded with a different model than the one querying."""
+
+
 @dataclass(frozen=True)
 class SearchResult:
     chunk: DocChunk
@@ -136,10 +140,10 @@ class HybridIndex:
         if payload["embedding_model"] != embedder.model_name:
             # Vectors from one model live in that model's space; querying them
             # with another model's vectors returns garbage that LOOKS ranked.
-            log.warning(
-                "index was built with %r but querying with %r — rebuild the index",
-                payload["embedding_model"],
-                embedder.model_name,
+            # Refuse outright: silently wrong results are worse than no results.
+            raise IndexModelMismatch(
+                f"index was built with {payload['embedding_model']!r} but queried "
+                f"with {embedder.model_name!r} — rebuild the index"
             )
         index = cls(embedder)
         index._chunks = [DocChunk(**c) for c in payload["chunks"]]

@@ -23,6 +23,22 @@ from driftguard.storage import db
 log = logging.getLogger("driftguard.agent")
 
 
+def recover_pending(settings: Settings) -> int:
+    """Re-run deliveries a previous process accepted but never finished.
+
+    BackgroundTasks are in-process: a crash between the 202 response and the
+    end of process_delivery loses the task — but not the archived payload,
+    which stays at status 'received'. Called on startup, this turns the
+    archive into a durable inbox: accepted work eventually runs, even across
+    restarts. Returns how many deliveries were recovered.
+    """
+    pending = db.pending_deliveries(settings.database_path)
+    for delivery_id in pending:
+        log.info("recovering delivery %s left unprocessed by a previous run", delivery_id)
+        process_delivery(settings, delivery_id)
+    return len(pending)
+
+
 def process_delivery(settings: Settings, delivery_id: str) -> None:
     row = db.get_delivery(settings.database_path, delivery_id)
     if row is None:

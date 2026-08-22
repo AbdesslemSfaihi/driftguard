@@ -17,7 +17,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-SCHEMA = """
+SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS deliveries (
     delivery_id  TEXT PRIMARY KEY,
     event        TEXT NOT NULL,
@@ -42,12 +42,26 @@ CREATE TABLE IF NOT EXISTS drift_facts (
 """
 
 
+# MIGRATIONS[i] upgrades a database at user_version i to version i+1.
+# Append-only: never edit an entry that has shipped — add a new script instead.
+# V1 keeps IF NOT EXISTS so databases created before version tracking (they
+# have the tables but user_version == 0) upgrade in place without errors.
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
+
+
 def _connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.executescript(SCHEMA)
+    # user_version is SQLite's built-in schema-version slot: one integer read
+    # per connection when up to date, and each migration + version bump commits
+    # together so a crash cannot record a migration it did not finish.
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    for target, script in enumerate(MIGRATIONS[version:], start=version + 1):
+        conn.executescript(script)
+        conn.execute(f"PRAGMA user_version = {target}")
+        conn.commit()
     return conn
 
 
@@ -88,6 +102,20 @@ def list_deliveries(db_path: Path, limit: int = 20) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def pending_deliveries(db_path: Path) -> list[str]:
+    """Ids of deliveries accepted (202) but never finished, oldest first.
+
+    BackgroundTasks die with the process; anything still at 'received' after a
+    restart is exactly the work that was lost. The archived payload is the queue
+    entry, so recovery is just re-processing these.
+    """
+    with closing(_connect(db_path)) as conn:
+        rows = conn.execute(
+            "SELECT delivery_id FROM deliveries WHERE status = 'received' ORDER BY received_at"
+        ).fetchall()
+        return [row["delivery_id"] for row in rows]
+
+
 def set_status(db_path: Path, delivery_id: str, status: str) -> None:
     with closing(_connect(db_path)) as conn, conn:
         conn.execute(
@@ -96,8 +124,15 @@ def set_status(db_path: Path, delivery_id: str, status: str) -> None:
 
 
 def save_facts(db_path: Path, delivery_id: str, facts: list[Any]) -> None:
-    """Persist extracted drift facts (accepts DriftFact instances)."""
+    """Persist extracted drift facts (accepts DriftFact instances).
+
+    Replaces any earlier extraction for the same delivery: startup recovery and
+    the replay CLI may re-run a delivery, and re-running must converge on the
+    same rows, not append duplicates. Delete + insert in ONE transaction, so a
+    crash mid-way never leaves the delivery with zero facts recorded as done.
+    """
     with closing(_connect(db_path)) as conn, conn:
+        conn.execute("DELETE FROM drift_facts WHERE delivery_id = ?", (delivery_id,))
         conn.executemany(
             "INSERT INTO drift_facts (delivery_id, kind, symbol, old, new, file)"
             " VALUES (?, ?, ?, ?, ?, ?)",

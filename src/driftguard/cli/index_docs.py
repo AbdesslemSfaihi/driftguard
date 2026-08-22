@@ -18,7 +18,7 @@ from pathlib import Path
 from driftguard.config import get_settings
 from driftguard.indexing.corpus import load_corpus, markdown_files
 from driftguard.indexing.embedder import OllamaEmbedder
-from driftguard.indexing.index import HybridIndex
+from driftguard.indexing.index import HybridIndex, IndexModelMismatch
 
 
 def main() -> None:
@@ -53,7 +53,10 @@ def main() -> None:
         print(f"indexed {len(chunks)} chunks from {len(markdown_files(root))} files -> {out}")
 
     elif args.command == "query":
-        index = HybridIndex.load(args.index or settings.index_dir, embedder)
+        try:
+            index = HybridIndex.load(args.index or settings.index_dir, embedder)
+        except IndexModelMismatch as exc:
+            sys.exit(f"error: {exc}")
         for result in index.search(args.text, k=args.k):
             found_by = ""
             if result.dense_rank is not None:
