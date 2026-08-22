@@ -11,6 +11,7 @@ fallback for the live demo.
 
 import argparse
 import logging
+import sys
 
 from driftguard.agent.handler import process_delivery
 from driftguard.config import get_settings
@@ -18,6 +19,10 @@ from driftguard.storage import db
 
 
 def main() -> None:
+    # PR titles and payloads may contain any unicode; Windows consoles default
+    # to a legacy codepage, so force UTF-8 output.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(prog="driftguard-replay", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 

@@ -45,21 +45,28 @@ python -m driftguard.cli.replay run <delivery_id>
 
 This is the test harness, the debugger, and the offline demo fallback.
 
+## Indexing the documentation (hybrid search)
+
+Requires local Ollama with the embedding model: `ollama pull nomic-embed-text`.
+
+```bash
+python -m driftguard.cli.index_docs build --docs <repo-or-docs-dir>
+python -m driftguard.cli.index_docs query "request_timeout default" -k 5
+```
+
+Query output shows, per hit, which retriever found it: `[D2]` = semantic
+(FAISS) rank 2, `[B1]` = exact-word (BM25) rank 1. Results are fused with
+Reciprocal Rank Fusion.
+
 ## Project layout
 
 ```
 src/driftguard/
-├── api/        webhook gate: signature check, dedupe, archive  (week 1 ✓)
-├── storage/    SQLite persistence                              (week 1 ✓)
-├── agent/      handler seam → LangGraph agent                  (week 2)
-├── analysis/   drift-fact extractor — EXERCISE 01              (you!)
-├── indexing/   docs loading, chunking, FAISS + BM25            (week 1-2)
-└── cli/        replay tool                                     (week 1 ✓)
+├── api/        webhook gate: signature check, dedupe, archive     (week 1 ✓)
+├── storage/    SQLite: deliveries + drift facts                   (week 1 ✓)
+├── github/     GitHub REST client (files, contents at a ref)      (week 1 ✓)
+├── analysis/   AST drift-fact extractor + PR pipeline             (week 1 ✓)
+├── indexing/   markdown chunking, FAISS + BM25 hybrid index       (week 1 ✓)
+├── agent/      handler seam → LangGraph agent                     (week 2)
+└── cli/        replay + index tools                               (week 1 ✓)
 ```
-
-## Current exercise
-
-**Exercise 01 — drift-fact extractor** (`src/driftguard/analysis/extractor.py`):
-turn an old/new pair of Python sources into typed `DriftFact`s using the `ast`
-module. The contract lives in `tests/test_extractor.py` — delete its `pytestmark`
-skip line and make the tests pass one by one.

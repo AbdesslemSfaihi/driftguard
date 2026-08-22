@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     database_path: Path = Path("data/driftguard.db")
     log_level: str = "INFO"
 
+    # Documentation index
+    ollama_base_url: str = "http://localhost:11434"
+    embedding_model: str = "nomic-embed-text"
+    index_dir: Path = Path("data/index")
+
 
 @lru_cache
 def get_settings() -> Settings:
