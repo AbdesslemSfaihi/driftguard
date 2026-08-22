@@ -1,0 +1,17 @@
+{
+  "id": "03-rename-and-default-timeout",
+  "description": "connect(): timeout renamed to request_timeout AND default 10 -> 30 (the demo scenario)",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [
+    {"kind": "renamed", "symbol": "connect.timeout"},
+    {"kind": "default_changed", "symbol": "connect.request_timeout"}
+  ],
+  "affected": [
+    {"doc": "README.md", "heading": "Quickstart"},
+    {"doc": "docs/configuration.md", "heading": "Connection timeouts"},
+    {"doc": "docs/api-reference.md", "heading": "connect(host"},
+    {"doc": "docs/tutorial.md", "heading": "Step 1"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

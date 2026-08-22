@@ -1,0 +1,12 @@
+{
+  "id": "13-remove-parse-url",
+  "description": "utils.py: parse_url() removed",
+  "file": "src/pyconnect/utils.py",
+  "expected_facts": [{"kind": "removed", "symbol": "parse_url"}],
+  "affected": [
+    {"doc": "docs/api-reference.md", "heading": "parse_url(url"},
+    {"doc": "docs/tutorial.md", "heading": "Step 2"}
+  ],
+  "protected": [],
+  "control": false
+}

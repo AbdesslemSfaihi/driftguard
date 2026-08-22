@@ -1,0 +1,12 @@
+{
+  "id": "10-rename-retry-base",
+  "description": "retry_delay(): parameter base renamed to base_delay",
+  "file": "src/pyconnect/utils.py",
+  "expected_facts": [{"kind": "renamed", "symbol": "retry_delay.base"}],
+  "affected": [
+    {"doc": "docs/error-handling.md", "heading": "Backoff"},
+    {"doc": "docs/api-reference.md", "heading": "retry_delay(attempt"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

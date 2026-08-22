@@ -1,0 +1,9 @@
+{
+  "id": "16-control-docstring-only",
+  "description": "CONTROL: docstrings and comments reworded, zero API change — the extractor must stay silent",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [],
+  "affected": [],
+  "protected": [],
+  "control": true
+}

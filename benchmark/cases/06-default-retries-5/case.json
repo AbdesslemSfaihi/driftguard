@@ -1,0 +1,12 @@
+{
+  "id": "06-default-retries-5",
+  "description": "request(): retries default changed from 2 to 5",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [{"kind": "default_changed", "symbol": "request.retries"}],
+  "affected": [
+    {"doc": "docs/error-handling.md", "heading": "Automatic retries"},
+    {"doc": "docs/api-reference.md", "heading": "request(method"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

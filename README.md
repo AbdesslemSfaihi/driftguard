@@ -58,6 +58,27 @@ Query output shows, per hit, which retriever found it: `[D2]` = semantic
 (FAISS) rank 2, `[B1]` = exact-word (BM25) rank 1. Results are fused with
 Reciprocal Rank Fusion.
 
+## Benchmark & evaluation
+
+`benchmark/` contains a fake library (**pyconnect**) with realistic docs and
+16 labeled cases: planted drifts of all four v1 kinds, a no-drift control,
+and protected historical pages. The harness measures:
+
+- **Fact recall** — did the AST extractor find every planted fact? Gate: 100%.
+- **Retrieval recall@k** — did hybrid search surface every affected doc
+  section? This is the system's ceiling: what retrieval misses, the judge
+  can never fix. Target with real embeddings: ≥ 80%.
+
+```bash
+python -m driftguard.cli.evaluate --embedder fake     # offline; runs in CI
+python -m driftguard.cli.evaluate --embedder ollama   # real numbers
+```
+
+Current scores: fact recall **100%**, retrieval recall **97.7%** (nomic-embed-text)
+vs 88.4% (hash baseline) — the +9.3pt delta is the measured value of semantic
+embeddings. The judgment stage (week 2) extends the same harness with
+precision and protected-page verdicts.
+
 ## Project layout
 
 ```

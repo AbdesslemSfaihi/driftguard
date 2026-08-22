@@ -1,0 +1,13 @@
+{
+  "id": "04-remove-legacy-login",
+  "description": "auth.py: legacy_login() removed entirely",
+  "file": "src/pyconnect/auth.py",
+  "expected_facts": [{"kind": "removed", "symbol": "legacy_login"}],
+  "affected": [
+    {"doc": "docs/authentication.md", "heading": "Legacy authentication"},
+    {"doc": "docs/faq.md", "heading": "older than 2.0"},
+    {"doc": "docs/api-reference.md", "heading": "legacy_login(user"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

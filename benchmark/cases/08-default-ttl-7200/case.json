@@ -1,0 +1,12 @@
+{
+  "id": "08-default-ttl-7200",
+  "description": "refresh_token(): ttl default changed from 3600 to 7200 seconds",
+  "file": "src/pyconnect/auth.py",
+  "expected_facts": [{"kind": "default_changed", "symbol": "refresh_token.ttl"}],
+  "affected": [
+    {"doc": "docs/authentication.md", "heading": "Token refresh"},
+    {"doc": "docs/api-reference.md", "heading": "refresh_token(token"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

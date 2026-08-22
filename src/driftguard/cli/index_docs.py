@@ -16,19 +16,9 @@ import sys
 from pathlib import Path
 
 from driftguard.config import get_settings
-from driftguard.indexing.chunker import chunk_markdown
+from driftguard.indexing.corpus import load_corpus, markdown_files
 from driftguard.indexing.embedder import OllamaEmbedder
 from driftguard.indexing.index import HybridIndex
-
-SKIP_DIRS = {"node_modules", ".git", ".venv", "__pycache__"}
-
-
-def _markdown_files(root: Path) -> list[Path]:
-    return sorted(
-        p
-        for p in root.rglob("*.md")
-        if not any(part.startswith(".") or part in SKIP_DIRS for part in p.parts)
-    )
 
 
 def main() -> None:
@@ -55,16 +45,12 @@ def main() -> None:
 
     if args.command == "build":
         root = args.docs.resolve()
-        chunks = []
-        files = _markdown_files(root)
-        for path in files:
-            relative = path.relative_to(root).as_posix()
-            chunks.extend(chunk_markdown(path.read_text(encoding="utf-8"), relative))
+        chunks = load_corpus(root)
         index = HybridIndex(embedder)
         index.build(chunks)
         out = args.out or settings.index_dir
         index.save(out)
-        print(f"indexed {len(chunks)} chunks from {len(files)} files -> {out}")
+        print(f"indexed {len(chunks)} chunks from {len(markdown_files(root))} files -> {out}")
 
     elif args.command == "query":
         index = HybridIndex.load(args.index or settings.index_dir, embedder)

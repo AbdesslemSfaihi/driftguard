@@ -1,0 +1,15 @@
+{
+  "id": "02-default-timeout-30",
+  "description": "connect(): timeout default changed from 10 to 30 seconds",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [{"kind": "default_changed", "symbol": "connect.timeout"}],
+  "affected": [
+    {"doc": "README.md", "heading": "Quickstart"},
+    {"doc": "docs/configuration.md", "heading": "Connection timeouts"},
+    {"doc": "docs/api-reference.md", "heading": "connect(host"},
+    {"doc": "docs/faq.md", "heading": "slow network"},
+    {"doc": "docs/tutorial.md", "heading": "Step 1"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

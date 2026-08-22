@@ -1,10 +1,7 @@
-"""Chunker + hybrid index tests — fully offline via a deterministic fake embedder."""
-
-import hashlib
-
-import numpy as np
+"""Chunker + hybrid index tests — fully offline via the deterministic HashEmbedder."""
 
 from driftguard.indexing.chunker import chunk_markdown
+from driftguard.indexing.embedder import HashEmbedder
 from driftguard.indexing.index import HybridIndex
 
 SAMPLE_MD = """Intro paragraph before any heading.
@@ -27,28 +24,6 @@ The client retries failed calls twice.
 
 More retry notes.
 """
-
-
-class FakeEmbedder:
-    """Deterministic bag-of-hashed-words vectors: texts sharing words are similar.
-
-    Good enough to exercise the dense path without a model, and instant.
-    """
-
-    model_name = "fake"
-
-    def __init__(self, dim: int = 64):
-        self.dim = dim
-
-    def embed(self, texts: list[str]) -> list[list[float]]:
-        out = []
-        for text in texts:
-            vec = np.zeros(self.dim, dtype="float32")
-            for token in text.lower().split():
-                bucket = int(hashlib.md5(token.encode()).hexdigest(), 16) % self.dim
-                vec[bucket] += 1.0
-            out.append((vec + 1e-6).tolist())  # epsilon: never a zero vector
-        return out
 
 
 # ---------- chunker ----------
@@ -95,7 +70,7 @@ def test_chunk_ids_are_stable_and_unique():
 
 
 def build_index() -> HybridIndex:
-    index = HybridIndex(FakeEmbedder())
+    index = HybridIndex(HashEmbedder())
     index.build(chunk_markdown(SAMPLE_MD, "docs/config.md"))
     return index
 
@@ -122,7 +97,7 @@ def test_snake_case_parts_match_partial_queries():
 
 
 def test_empty_index_returns_empty_results():
-    index = HybridIndex(FakeEmbedder())
+    index = HybridIndex(HashEmbedder())
     index.build([])
     assert index.search("anything") == []
 
@@ -132,7 +107,7 @@ def test_save_and_load_roundtrip(tmp_path):
     before = index.search("request_timeout", k=3)
     index.save(tmp_path / "idx")
 
-    reloaded = HybridIndex.load(tmp_path / "idx", FakeEmbedder())
+    reloaded = HybridIndex.load(tmp_path / "idx", HashEmbedder())
     after = reloaded.search("request_timeout", k=3)
 
     assert [r.chunk.chunk_id for r in after] == [r.chunk.chunk_id for r in before]

@@ -1,0 +1,12 @@
+{
+  "id": "15-remove-refresh-token",
+  "description": "auth.py: refresh_token() removed (tokens no longer refreshable)",
+  "file": "src/pyconnect/auth.py",
+  "expected_facts": [{"kind": "removed", "symbol": "refresh_token"}],
+  "affected": [
+    {"doc": "docs/authentication.md", "heading": "Token refresh"},
+    {"doc": "docs/api-reference.md", "heading": "refresh_token(token"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

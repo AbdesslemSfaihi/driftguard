@@ -1,0 +1,14 @@
+{
+  "id": "05-add-required-api-key",
+  "description": "connect(): new required parameter api_key added",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [{"kind": "signature_changed", "symbol": "connect"}],
+  "affected": [
+    {"doc": "docs/api-reference.md", "heading": "connect(host"},
+    {"doc": "README.md", "heading": "Quickstart"},
+    {"doc": "docs/quickstart.md", "heading": "Your first connection"},
+    {"doc": "docs/tutorial.md", "heading": "Step 1"}
+  ],
+  "protected": [],
+  "control": false
+}

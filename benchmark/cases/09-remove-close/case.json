@@ -1,0 +1,13 @@
+{
+  "id": "09-remove-close",
+  "description": "client.py: close() removed (sessions now auto-close)",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [{"kind": "removed", "symbol": "close"}],
+  "affected": [
+    {"doc": "docs/api-reference.md", "heading": "close(session"},
+    {"doc": "docs/tutorial.md", "heading": "Step 4"},
+    {"doc": "README.md", "heading": "Quickstart"}
+  ],
+  "protected": [],
+  "control": false
+}

@@ -1,0 +1,13 @@
+{
+  "id": "12-default-strict-true",
+  "description": "load_config(): strict default flipped from False to True",
+  "file": "src/pyconnect/config.py",
+  "expected_facts": [{"kind": "default_changed", "symbol": "load_config.strict"}],
+  "affected": [
+    {"doc": "docs/configuration.md", "heading": "Strict mode"},
+    {"doc": "docs/api-reference.md", "heading": "load_config(path"},
+    {"doc": "docs/faq.md", "heading": "unknown configuration keys"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

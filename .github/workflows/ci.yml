@@ -20,3 +20,5 @@ jobs:
         run: ruff check .
       - name: Tests
         run: pytest -q
+      - name: Benchmark scorecard (offline embedder)
+        run: python -m driftguard.cli.evaluate --embedder fake

@@ -1,0 +1,13 @@
+{
+  "id": "07-rename-strict-mode",
+  "description": "load_config(): parameter strict renamed to strict_mode",
+  "file": "src/pyconnect/config.py",
+  "expected_facts": [{"kind": "renamed", "symbol": "load_config.strict"}],
+  "affected": [
+    {"doc": "docs/configuration.md", "heading": "Strict mode"},
+    {"doc": "docs/api-reference.md", "heading": "load_config(path"},
+    {"doc": "docs/faq.md", "heading": "unknown configuration keys"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

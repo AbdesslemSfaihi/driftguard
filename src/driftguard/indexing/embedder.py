@@ -27,6 +27,32 @@ class Embedder(Protocol):
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+class HashEmbedder:
+    """Deterministic bag-of-hashed-words vectors — NOT semantic.
+
+    Texts sharing words get similar vectors; that is all. Exists so tests and
+    CI can exercise the full retrieval pipeline offline and instantly. Real
+    quality numbers require OllamaEmbedder; eval reports label which one ran.
+    """
+
+    model_name = "hash-64"
+
+    def __init__(self, dim: int = 64):
+        self.dim = dim
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        import hashlib
+
+        vectors: list[list[float]] = []
+        for text in texts:
+            vector = [1e-6] * self.dim  # epsilon: never a zero vector
+            for token in text.lower().split():
+                bucket = int(hashlib.md5(token.encode()).hexdigest(), 16) % self.dim
+                vector[bucket] += 1.0
+            vectors.append(vector)
+        return vectors
+
+
 class OllamaEmbedder:
     def __init__(
         self,

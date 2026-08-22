@@ -1,0 +1,12 @@
+{
+  "id": "14-rename-host-server",
+  "description": "connect(): first parameter host renamed to server",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [{"kind": "renamed", "symbol": "connect.host"}],
+  "affected": [
+    {"doc": "docs/api-reference.md", "heading": "connect(host"}
+  ],
+  "protected": [],
+  "control": false,
+  "notes": "Docs that pass the host positionally are NOT wrong — only the reference documenting the parameter name is. Deliberately narrow label to keep precision honest."
+}

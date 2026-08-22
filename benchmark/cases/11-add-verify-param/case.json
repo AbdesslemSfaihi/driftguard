@@ -1,0 +1,11 @@
+{
+  "id": "11-add-verify-param",
+  "description": "request(): new optional parameter verify=True added (arity change)",
+  "file": "src/pyconnect/client.py",
+  "expected_facts": [{"kind": "signature_changed", "symbol": "request"}],
+  "affected": [
+    {"doc": "docs/api-reference.md", "heading": "request(method"}
+  ],
+  "protected": [],
+  "control": false
+}
