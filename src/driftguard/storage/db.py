@@ -42,11 +42,32 @@ CREATE TABLE IF NOT EXISTS drift_facts (
 """
 
 
+# V2: the agent's verified doc fixes, one row per (delivery, doc section).
+# Kept even after a PR is opened — they are the evidence trail.
+SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS proposals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id TEXT NOT NULL REFERENCES deliveries(delivery_id),
+    doc_path    TEXT NOT NULL,
+    heading     TEXT NOT NULL,
+    start_line  INTEGER NOT NULL,
+    end_line    INTEGER NOT NULL,
+    old_text    TEXT NOT NULL,
+    new_text    TEXT NOT NULL,
+    facts       TEXT NOT NULL,      -- "renamed:connect.timeout, default_changed:..."
+    reasons     TEXT NOT NULL,      -- the judge's evidence, one line per fact
+    status      TEXT NOT NULL,      -- verified | rejected | published
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+ALTER TABLE deliveries ADD COLUMN docs_pr_url TEXT;
+"""
+
 # MIGRATIONS[i] upgrades a database at user_version i to version i+1.
 # Append-only: never edit an entry that has shipped — add a new script instead.
 # V1 keeps IF NOT EXISTS so databases created before version tracking (they
 # have the tables but user_version == 0) upgrade in place without errors.
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1,)
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -147,3 +168,49 @@ def facts_for_delivery(db_path: Path, delivery_id: str) -> list[sqlite3.Row]:
             " WHERE delivery_id = ? ORDER BY id",
             (delivery_id,),
         ).fetchall()
+
+
+def save_proposals(db_path: Path, delivery_id: str, proposals: list[Any]) -> None:
+    """Persist the agent's doc-fix proposals (accepts Proposal instances).
+
+    Same replace-on-rerun contract as save_facts: recovery and replay must
+    converge on the same rows.
+    """
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute("DELETE FROM proposals WHERE delivery_id = ?", (delivery_id,))
+        conn.executemany(
+            "INSERT INTO proposals (delivery_id, doc_path, heading, start_line, end_line,"
+            " old_text, new_text, facts, reasons, status)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    delivery_id,
+                    p.chunk.doc_path,
+                    p.chunk.heading_path,
+                    p.chunk.start_line,
+                    p.chunk.end_line,
+                    p.chunk.text,
+                    p.new_text,
+                    ", ".join(f"{f.kind}:{f.symbol}" for f in p.facts),
+                    "\n".join(p.reasons),
+                    p.status,
+                )
+                for p in proposals
+            ],
+        )
+
+
+def proposals_for_delivery(db_path: Path, delivery_id: str) -> list[sqlite3.Row]:
+    with closing(_connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT doc_path, heading, start_line, end_line, old_text, new_text,"
+            " facts, reasons, status FROM proposals WHERE delivery_id = ? ORDER BY id",
+            (delivery_id,),
+        ).fetchall()
+
+
+def set_docs_pr_url(db_path: Path, delivery_id: str, url: str) -> None:
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute(
+            "UPDATE deliveries SET docs_pr_url = ? WHERE delivery_id = ?", (url, delivery_id)
+        )

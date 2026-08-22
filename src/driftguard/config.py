@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
     index_dir: Path = Path("data/index")
 
+    # Agent (judgment + writing)
+    anthropic_api_key: str = ""  # empty = stop after fact extraction
+    judge_model: str = "claude-opus-5"
+    max_fix_attempts: int = 2  # fixer retries per finding before it is dropped
+    open_docs_prs: bool = True  # False = store verified proposals, never push/PR
+
 
 @lru_cache
 def get_settings() -> Settings:

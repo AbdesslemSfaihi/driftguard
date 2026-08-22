@@ -69,25 +69,55 @@ and protected historical pages. The harness measures:
   section? This is the system's ceiling: what retrieval misses, the judge
   can never fix. Target with real embeddings: ≥ 80%.
 
+- **Judgment** (needs `ANTHROPIC_API_KEY`) — of the retrieved sections, which
+  did the judge mark drifted? Reported as recall, **precision** (the trust
+  metric: target ≥ 90%), and **protected pages** — release notes the judge
+  must classify `historical`, never edit.
+
 ```bash
-python -m driftguard.cli.evaluate --embedder fake     # offline; runs in CI
-python -m driftguard.cli.evaluate --embedder ollama   # real numbers
+python -m driftguard.cli.evaluate --embedder fake              # offline; runs in CI
+python -m driftguard.cli.evaluate --embedder ollama            # real retrieval numbers
+python -m driftguard.cli.evaluate --embedder ollama --judge anthropic  # + judgment
 ```
 
 Current scores: fact recall **100%**, retrieval recall **97.7%** (nomic-embed-text)
 vs 88.4% (hash baseline) — the +9.3pt delta is the measured value of semantic
-embeddings. The judgment stage (week 2) extends the same harness with
-precision and protected-page verdicts.
+embeddings.
+
+## The agent (week 2)
+
+After facts are extracted, a LangGraph state machine runs
+`search → judge → fix → verify → publish`:
+
+- **search** — fetches the repo's docs *at the merge commit*, builds the hybrid
+  index in memory, retrieves top-k candidate sections per fact.
+- **judge** (Claude, structured outputs) — per fact, classifies each candidate
+  section `drifted` / `accurate` / `historical`. Historical pages (release
+  notes, changelogs) are never touched. Facts hitting the same section are
+  grouped into one rewrite.
+- **fix** (Claude) — rewrites the drifted section, minimal edits only.
+- **verify** (deterministic code, no LLM) — the old name must be gone, the new
+  default must appear, removed functions must not be mentioned... A failing
+  fix goes back to **fix** with feedback (bounded by `MAX_FIX_ATTEMPTS`);
+  a fix that never passes is dropped, not published.
+- **publish** — branch `driftguard/docs-pr-<n>`, one commit per doc (edits are
+  applied by chunk line-range, bottom-up), and an evidence-backed PR for human
+  review. `OPEN_DOCS_PRS=false` stores verified proposals without pushing.
+
+The LLM never decides *what changed* (the AST extractor did) and never grades
+its own work (verification is code). Each credential gates one stage: no
+`GITHUB_TOKEN` = archive only; no `ANTHROPIC_API_KEY` = facts only.
 
 ## Project layout
 
 ```
 src/driftguard/
 ├── api/        webhook gate: signature check, dedupe, archive     (week 1 ✓)
-├── storage/    SQLite: deliveries + drift facts                   (week 1 ✓)
-├── github/     GitHub REST client (files, contents at a ref)      (week 1 ✓)
+├── storage/    SQLite (migrated): deliveries, facts, proposals    (week 1 ✓)
+├── github/     GitHub REST client: read at a ref, branch/PR write (week 1 ✓)
 ├── analysis/   AST drift-fact extractor + PR pipeline             (week 1 ✓)
 ├── indexing/   markdown chunking, FAISS + BM25 hybrid index       (week 1 ✓)
-├── agent/      handler seam → LangGraph agent                     (week 2)
-└── cli/        replay + index tools                               (week 1 ✓)
+├── agent/      LangGraph agent: search→judge→fix→verify→publish   (week 2 ✓)
+├── evaluation/ planted-drift harness (facts, retrieval, judgment) (week 2 ✓)
+└── cli/        replay + index + evaluate tools                    (week 1 ✓)
 ```

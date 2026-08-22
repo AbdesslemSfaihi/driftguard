@@ -17,7 +17,12 @@ NEW_CLIENT_PY = "def connect(host, request_timeout=30):\n    ...\n"
 
 
 def _b64(source: str) -> dict:
-    return {"encoding": "base64", "content": base64.b64encode(source.encode()).decode()}
+    # Real GitHub contents responses always carry the blob sha.
+    return {
+        "encoding": "base64",
+        "content": base64.b64encode(source.encode()).decode(),
+        "sha": "blob-sha",
+    }
 
 
 def fake_github(request: httpx.Request) -> httpx.Response:
@@ -82,16 +87,11 @@ def test_end_to_end_webhook_to_facts(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     import driftguard.agent.handler as handler
-    from conftest import merged_pr_payload, post_webhook
+    from conftest import make_settings, merged_pr_payload, post_webhook
     from driftguard.api.webhook import create_app
-    from driftguard.config import Settings
     from driftguard.storage import db
 
-    settings = Settings(
-        github_webhook_secret="test-secret",
-        github_token="fake-token",
-        database_path=tmp_path / "e2e.db",
-    )
+    settings = make_settings(tmp_path, github_token="fake-token", database_path=tmp_path / "e2e.db")
     real_client = GitHubClient
     monkeypatch.setattr(
         handler,

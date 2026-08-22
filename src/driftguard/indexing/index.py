@@ -146,7 +146,14 @@ class HybridIndex:
                 f"with {embedder.model_name!r} — rebuild the index"
             )
         index = cls(embedder)
-        index._chunks = [DocChunk(**c) for c in payload["chunks"]]
+        try:
+            index._chunks = [DocChunk(**c) for c in payload["chunks"]]
+        except TypeError as exc:
+            # A chunks.json written before the DocChunk schema grew (e.g. the
+            # line-range fields) — the index format changed, not the caller.
+            raise IndexModelMismatch(
+                f"saved index has an outdated chunk format — rebuild the index ({exc})"
+            ) from exc
         index._dense = faiss.read_index(str(directory / "dense.faiss"))
         # BM25 is rebuilt from the chunk texts: it is cheap, and it avoids
         # pickling (a deserialization attack surface and a version trap).

@@ -33,3 +33,20 @@ def test_benchmark_retrieval_floor_with_fake_embedder():
     assert report.retrieval_recall >= 0.75, [
         (c.case_id, c.missed_sections) for c in report.cases if c.missed_sections
     ]
+
+
+def test_judgment_stage_plumbing_with_the_fake_judge():
+    """Real judgment numbers need the Anthropic judge; this proves the harness
+    itself — verdict collection, section matching, protected-page accounting —
+    with the deterministic fake."""
+    from conftest import FakeDriftModel
+
+    report = run_eval(BENCHMARK_DIR, HashEmbedder(), k=5, model=FakeDriftModel())
+
+    assert report.judge == "fake-drift-model"
+    # The fake marks release-notes pages historical, so nothing protected is hit.
+    assert report.protected_clean
+    # The fake judges 'drifted' on any old-identifier hit, so its recall can
+    # never exceed retrieval recall — and should catch most of it.
+    assert 0 < report.judgment_recall <= report.retrieval_recall
+    assert 0 < report.judgment_precision <= 1.0

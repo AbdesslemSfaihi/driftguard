@@ -13,6 +13,8 @@ dependencies = [
     "faiss-cpu>=1.9",
     "rank-bm25>=0.2",
     "numpy>=1.26",
+    "anthropic>=1.0",
+    "langgraph>=1.0",
 ]
 
 [project.optional-dependencies]

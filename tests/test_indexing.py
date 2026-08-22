@@ -1,6 +1,6 @@
 """Chunker + hybrid index tests — fully offline via the deterministic HashEmbedder."""
 
-from driftguard.indexing.chunker import chunk_markdown
+from driftguard.indexing.chunker import apply_chunk_edits, chunk_markdown
 from driftguard.indexing.embedder import HashEmbedder
 from driftguard.indexing.index import HybridIndex
 
@@ -64,6 +64,39 @@ def test_chunk_ids_are_stable_and_unique():
     ids = [c.chunk_id for c in chunks]
     assert len(ids) == len(set(ids))
     assert ids == [f"docs/config.md::{i}" for i in range(len(chunks))]
+
+
+def test_chunks_carry_their_source_line_ranges():
+    lines = SAMPLE_MD.splitlines()
+    for chunk in chunk_markdown(SAMPLE_MD, "docs/config.md"):
+        assert lines[chunk.start_line] == chunk.text.splitlines()[0]
+        assert lines[chunk.end_line] == chunk.text.splitlines()[-1]
+
+
+def test_apply_chunk_edits_replaces_exact_sections_and_nothing_else():
+    chunks = chunk_markdown(SAMPLE_MD, "docs/config.md")
+    timeouts = next(c for c in chunks if c.heading_path.endswith("Timeouts"))
+
+    new_doc = apply_chunk_edits(SAMPLE_MD, [(timeouts, "## Timeouts\n\nBrand new text.")])
+
+    assert "Brand new text." in new_doc
+    assert "request_timeout" not in new_doc  # the old section content is gone
+    assert "# Configuration" in new_doc  # everything around it survived
+    assert "More retry notes." in new_doc
+    assert "not a real heading" in new_doc  # fenced content intact
+
+
+def test_apply_chunk_edits_is_bottom_up_safe_for_multiple_edits():
+    chunks = chunk_markdown(SAMPLE_MD, "docs/config.md")
+    timeouts = next(c for c in chunks if c.heading_path.endswith("Timeouts"))
+    retries = next(c for c in chunks if c.heading_path.endswith("Retries"))
+
+    # Passed top-down on purpose: apply_chunk_edits must reorder internally.
+    new_doc = apply_chunk_edits(
+        SAMPLE_MD, [(timeouts, "## Timeouts\n\nT."), (retries, "## Retries\n\nR.")]
+    )
+    assert "\nT.\n" in new_doc and "\nR." in new_doc
+    assert "retries failed calls" not in new_doc
 
 
 # ---------- hybrid index ----------

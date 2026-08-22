@@ -77,7 +77,14 @@ class GitHubClient:
         return files[:MAX_CHANGED_FILES]
 
     def file_content(self, repo: str, path: str, ref: str) -> str | None:
-        """Decoded text of one file at one commit, or None when unusable.
+        result = self.file_with_sha(repo, path, ref)
+        return None if result is None else result[0]
+
+    def file_with_sha(self, repo: str, path: str, ref: str) -> tuple[str, str] | None:
+        """(decoded text, blob sha) of one file at one commit, or None when unusable.
+
+        The blob sha is what the contents API demands back when UPDATING the
+        file — GitHub's optimistic-concurrency check against lost updates.
 
         None (rather than an exception) covers the *expected* misses: the file
         does not exist at that ref (404), it is a directory, it is binary, or it
@@ -93,7 +100,69 @@ class GitHubClient:
         if isinstance(data, list) or data.get("encoding") != "base64":
             return None
         try:
-            return base64.b64decode(data["content"]).decode("utf-8")
+            return base64.b64decode(data["content"]).decode("utf-8"), data["sha"]
         except (ValueError, UnicodeDecodeError):
             log.warning("could not decode %s@%s as utf-8 text", path, ref)
             return None
+
+    def markdown_paths(self, repo: str, ref: str) -> list[str]:
+        """Every .md file path in the repo at one commit, via the git trees API.
+
+        One request for the whole tree (recursive) instead of walking the
+        contents API directory by directory. GitHub truncates giant trees;
+        that is LOGGED, never silent — same policy as MAX_CHANGED_FILES.
+        """
+        response = self._http.get(f"/repos/{repo}/git/trees/{ref}", params={"recursive": "1"})
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        data = response.json()
+        if data.get("truncated"):
+            log.warning("%s@%s: git tree truncated — some docs may be missed", repo, ref)
+        return sorted(
+            entry["path"]
+            for entry in data.get("tree", [])
+            if entry.get("type") == "blob" and entry["path"].endswith(".md")
+        )
+
+    # ---------- write operations (docs PR publishing) ----------
+
+    def create_branch(self, repo: str, branch: str, from_sha: str) -> None:
+        response = self._http.post(
+            f"/repos/{repo}/git/refs",
+            json={"ref": f"refs/heads/{branch}", "sha": from_sha},
+        )
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+
+    def put_file(
+        self, repo: str, path: str, *, message: str, text: str, branch: str, sha: str | None
+    ) -> None:
+        """Create or update one file on a branch. *sha* is the current blob sha
+        when updating (from file_with_sha); GitHub rejects a stale sha, which
+        protects against clobbering a concurrent edit."""
+        payload: dict[str, str] = {
+            "message": message,
+            "content": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+            "branch": branch,
+        }
+        if sha is not None:
+            payload["sha"] = sha
+        response = self._http.put(f"/repos/{repo}/contents/{path}", json=payload)
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+
+    def open_pull_request(self, repo: str, *, title: str, body: str, head: str, base: str) -> str:
+        """Open a PR and return its html_url."""
+        response = self._http.post(
+            f"/repos/{repo}/pulls",
+            json={"title": title, "body": body, "head": head, "base": base},
+        )
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        return response.json()["html_url"]
+
+    def default_branch(self, repo: str) -> str:
+        response = self._http.get(f"/repos/{repo}")
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        return response.json()["default_branch"]

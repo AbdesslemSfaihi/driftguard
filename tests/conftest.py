@@ -1,21 +1,68 @@
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from driftguard.agent.model import SectionVerdict
 from driftguard.api.webhook import create_app
 from driftguard.config import Settings
 
 TEST_SECRET = "test-secret"
 
 
+def make_settings(tmp_path: Path, **overrides) -> Settings:
+    """Hermetic Settings: credentials empty unless a test opts in, so a
+    developer's local .env can never change what the suite exercises."""
+    values = {
+        "github_webhook_secret": TEST_SECRET,
+        "github_token": "",
+        "anthropic_api_key": "",
+        "database_path": tmp_path / "test.db",
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
 @pytest.fixture()
 def client(tmp_path: Path) -> TestClient:
-    settings = Settings(github_webhook_secret=TEST_SECRET, database_path=tmp_path / "test.db")
-    return TestClient(create_app(settings))
+    return TestClient(create_app(make_settings(tmp_path)))
+
+
+class FakeDriftModel:
+    """Deterministic judge + fixer so graph and harness plumbing is testable
+    offline. Judge: release-notes pages are historical, a word-boundary hit on
+    the fact's old identifier is drifted, anything else accurate. Fixer: a
+    mechanical old->new replacement (which cannot fix 'removed' facts — that
+    failure path is exactly what the rejection tests rely on)."""
+
+    model_name = "fake-drift-model"
+
+    def judge(self, fact, chunks):
+        verdicts = []
+        for chunk in chunks:
+            if "release-notes" in chunk.doc_path:
+                verdict = "historical"
+            elif fact.old and re.search(
+                rf"\b{re.escape(fact.old.strip(chr(39)))}\b", chunk.text
+            ):
+                verdict = "drifted"
+            else:
+                verdict = "accurate"
+            verdicts.append(
+                SectionVerdict(chunk_id=chunk.chunk_id, verdict=verdict, reason=f"fake {verdict}")
+            )
+        return verdicts
+
+    def propose_fix(self, chunk, facts, feedback=None):
+        text = chunk.text
+        for fact in facts:
+            if fact.kind in ("renamed", "default_changed") and fact.old and fact.new:
+                text = re.sub(rf"\b{re.escape(fact.old)}\b", fact.new, text)
+        return text
 
 
 def sign(body: bytes, secret: str = TEST_SECRET) -> str:

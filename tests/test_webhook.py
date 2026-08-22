@@ -73,11 +73,11 @@ def test_signed_but_malformed_json_is_a_400_not_a_500(client):
 
 def test_pending_deliveries_are_recovered(tmp_path):
     """A delivery accepted before a crash sits at 'received'; recovery re-runs it."""
+    from conftest import make_settings
     from driftguard.agent.handler import recover_pending
-    from driftguard.config import Settings
     from driftguard.storage import db
 
-    settings = Settings(github_webhook_secret="s", database_path=tmp_path / "recover.db")
+    settings = make_settings(tmp_path, database_path=tmp_path / "recover.db")
     db.record_delivery(
         settings.database_path,
         delivery_id="lost-1",

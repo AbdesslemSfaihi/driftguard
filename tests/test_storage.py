@@ -56,3 +56,38 @@ def test_save_facts_replaces_the_previous_extraction(tmp_path):
     db.save_facts(path, "d-1", [FakeFact()])
     db.save_facts(path, "d-1", [FakeFact()])  # recovery/replay re-run
     assert len(db.facts_for_delivery(path, "d-1")) == 1
+
+
+def test_proposals_roundtrip_and_replace_on_rerun(tmp_path):
+    from driftguard.agent.graph import Proposal
+    from driftguard.indexing.chunker import DocChunk
+
+    chunk = DocChunk(
+        doc_path="docs/config.md",
+        heading_path="Configuration > Timeouts",
+        text="old section",
+        chunk_id="docs/config.md::2",
+        start_line=4,
+        end_line=6,
+    )
+    fact = FakeFact()
+    proposal = Proposal(
+        chunk=chunk, facts=[fact], reasons=["says timeout"], new_text="new section",
+        status="verified",
+    )
+
+    path = tmp_path / "p.db"
+    record(path)
+    db.save_proposals(path, "d-1", [proposal])
+    db.save_proposals(path, "d-1", [proposal])  # replay must not duplicate
+
+    rows = db.proposals_for_delivery(path, "d-1")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["doc_path"] == "docs/config.md"
+    assert (row["start_line"], row["end_line"]) == (4, 6)
+    assert row["facts"] == "renamed:connect.timeout"
+    assert row["status"] == "verified"
+
+    db.set_docs_pr_url(path, "d-1", "https://github.com/a/b/pull/9")
+    assert db.get_delivery(path, "d-1")["docs_pr_url"] == "https://github.com/a/b/pull/9"
