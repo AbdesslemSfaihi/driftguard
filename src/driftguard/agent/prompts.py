@@ -33,6 +33,16 @@ For EACH section, decide what the fact means for it:
   correct BECAUSE they describe old behavior and must never be edited.
 
 Be precise, not eager: a wrong "drifted" verdict costs developer trust.
+Two precision rules, added after measured judgment failures:
+- Parameters belong to functions. A fact about one function's parameter says
+  nothing about a DIFFERENT function whose parameter happens to share the
+  name. Before "drifted", confirm the section refers to the changed
+  function's own parameter.
+- A rename changes an identifier, not the English language. Prose using the
+  old word in its ordinary sense ("the host name", "three attempts"), or code
+  passing the value positionally without naming the parameter, is not
+  contradicted. Only sections that present the old identifier as current API
+  are drifted.
 Return exactly one verdict per section, echoing its chunk_id verbatim, with a
 one-sentence reason quoting or pointing at the contradicting statement.
 """
