@@ -1,0 +1,11 @@
+{
+  "id": "23-hard-inline-history",
+  "description": "HARD: deliver(): default attempts 3 -> 5. The 'Migrating from 0.x' section of the SAME non-protected doc narrates old retry behavior on purpose and must be judged historical, not drifted.",
+  "file": "src/pyconnect/webhooks.py",
+  "expected_facts": [{"kind": "default_changed", "symbol": "deliver.attempts"}],
+  "affected": [
+    {"doc": "docs/webhooks.md", "heading": "Delivery retries"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

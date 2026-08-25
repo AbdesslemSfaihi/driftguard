@@ -16,7 +16,7 @@ BENCHMARK_DIR = Path(__file__).parents[1] / "benchmark"
 def test_benchmark_deterministic_guarantees_hold():
     report = run_eval(BENCHMARK_DIR, HashEmbedder(), k=5)
 
-    assert len(report.cases) == 21
+    assert len(report.cases) == 24
     assert report.fact_recall == 1.0, [
         (c.case_id, c.facts_matched, c.facts_expected) for c in report.cases if not c.facts_ok
     ]

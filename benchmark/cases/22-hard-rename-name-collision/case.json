@@ -1,0 +1,11 @@
+{
+  "id": "22-hard-rename-name-collision",
+  "description": "HARD: register_webhook(): secret renamed to signing_key — but verify_signature() keeps its own, unchanged `secret` parameter. Sections about verify_signature mention `secret` legitimately and must NOT be flagged.",
+  "file": "src/pyconnect/webhooks.py",
+  "expected_facts": [{"kind": "renamed", "symbol": "register_webhook.secret"}],
+  "affected": [
+    {"doc": "docs/webhooks.md", "heading": "Registering a webhook"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

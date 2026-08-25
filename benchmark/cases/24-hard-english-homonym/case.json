@@ -1,0 +1,11 @@
+{
+  "id": "24-hard-english-homonym",
+  "description": "HARD: deliver(): parameter attempts renamed to max_retries. The docs also use 'attempts' as a plain English word ('Three attempts is usually plenty') — the affected section is drifted because of its identifier uses, and prose-only echoes elsewhere must not create extra flags.",
+  "file": "src/pyconnect/webhooks.py",
+  "expected_facts": [{"kind": "renamed", "symbol": "deliver.attempts"}],
+  "affected": [
+    {"doc": "docs/webhooks.md", "heading": "Delivery retries"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}
