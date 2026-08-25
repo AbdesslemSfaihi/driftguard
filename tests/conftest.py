@@ -22,6 +22,10 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         "github_token": "",
         "anthropic_api_key": "",
         "database_path": tmp_path / "test.db",
+        # Behavior flags pinned to code defaults — a developer's local .env
+        # (e.g. OPEN_DOCS_PRS=false while testing) must not change the suite.
+        "open_docs_prs": True,
+        "max_fix_attempts": 2,
     }
     values.update(overrides)
     return Settings(**values)

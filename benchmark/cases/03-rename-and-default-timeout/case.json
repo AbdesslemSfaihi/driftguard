@@ -8,8 +8,10 @@
   ],
   "affected": [
     {"doc": "README.md", "heading": "Quickstart"},
+    {"doc": "docs/quickstart.md", "heading": "Your first connection"},
     {"doc": "docs/configuration.md", "heading": "Connection timeouts"},
     {"doc": "docs/api-reference.md", "heading": "connect(host"},
+    {"doc": "docs/faq.md", "heading": "slow network"},
     {"doc": "docs/tutorial.md", "heading": "Step 1"}
   ],
   "protected": ["docs/release-notes-v1.md"],
