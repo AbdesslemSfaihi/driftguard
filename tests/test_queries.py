@@ -23,6 +23,25 @@ def test_removed_queries_use_the_old_symbol():
     assert queries[0] == "legacy_login"
 
 
+def test_dotted_method_symbols_query_by_short_names():
+    fact = DriftFact("renamed", "ConnectionPool.acquire.wait", "wait", "block", "pool.py")
+    queries = queries_for_fact(fact)
+    assert queries[0] == "wait"  # docs say acquire(wait=...), not the dotted path
+    assert "acquire wait" in queries
+
+
+def test_constant_changed_queries_lead_with_the_constant_name():
+    fact = DriftFact("constant_changed", "POOL_TIMEOUT", "15", "30", "pool.py")
+    queries = queries_for_fact(fact)
+    assert queries[0] == "POOL_TIMEOUT"
+    assert "POOL_TIMEOUT 15" in queries  # the old value is what drifted docs say
+
+
+def test_removed_method_queries_include_the_bare_method_name():
+    fact = DriftFact("removed", "ConnectionPool.drain", "ConnectionPool.drain", None, "pool.py")
+    assert "drain" in queries_for_fact(fact)
+
+
 def test_queries_are_deduplicated_and_non_empty():
     fact = DriftFact("signature_changed", "connect", old="(host)", new="(host, key)",
                      file="a.py")

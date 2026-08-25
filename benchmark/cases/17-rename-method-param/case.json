@@ -1,0 +1,11 @@
+{
+  "id": "17-rename-method-param",
+  "description": "ConnectionPool.acquire(): parameter wait renamed to block",
+  "file": "src/pyconnect/pool.py",
+  "expected_facts": [{"kind": "renamed", "symbol": "ConnectionPool.acquire.wait"}],
+  "affected": [
+    {"doc": "docs/connection-pools.md", "heading": "Borrowing and returning"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

@@ -36,6 +36,22 @@ def test_default_change_requires_new_value_and_forbids_old():
     assert "30" in verify_fix([DEFAULT], old, "The default changed recently.")
 
 
+def test_constant_change_requires_new_value_and_forbids_old():
+    fact = DriftFact("constant_changed", "POOL_TIMEOUT", "15", "30", "pool.py")
+    old = "Blocks up to `POOL_TIMEOUT` seconds — **15** by default."
+    fixed = "Blocks up to `POOL_TIMEOUT` seconds — **30** by default."
+    assert verify_fix([fact], old, fixed) is None
+    assert "15" in verify_fix([fact], old, "Blocks up to 15 or 30 seconds.")
+    assert "30" in verify_fix([fact], old, "Blocks for a while by default.")
+
+
+def test_removed_method_checks_the_bare_name_docs_actually_use():
+    fact = DriftFact("removed", "ConnectionPool.drain", "ConnectionPool.drain", None, "pool.py")
+    old = "Call `drain()` before shutdown."
+    assert "drain" in verify_fix([fact], old, "Call `drain()` if you like.")
+    assert verify_fix([fact], old, "Connections are closed automatically at shutdown.") is None
+
+
 def test_removed_function_must_disappear():
     old = "Call `legacy_login()` first."
     assert "legacy_login" in verify_fix([REMOVED], old, "Call `legacy_login()` if needed.")

@@ -1,0 +1,9 @@
+{
+  "id": "21-control-method-body",
+  "description": "control: internal variable + method bodies/docstrings change, API untouched",
+  "file": "src/pyconnect/pool.py",
+  "expected_facts": [],
+  "affected": [],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": true
+}

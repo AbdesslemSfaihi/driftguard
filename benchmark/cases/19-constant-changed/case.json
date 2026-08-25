@@ -1,0 +1,11 @@
+{
+  "id": "19-constant-changed",
+  "description": "module constant POOL_TIMEOUT raised from 15 to 30",
+  "file": "src/pyconnect/pool.py",
+  "expected_facts": [{"kind": "constant_changed", "symbol": "POOL_TIMEOUT"}],
+  "affected": [
+    {"doc": "docs/connection-pools.md", "heading": "Borrowing and returning"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

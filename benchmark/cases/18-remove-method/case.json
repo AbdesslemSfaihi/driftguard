@@ -1,0 +1,11 @@
+{
+  "id": "18-remove-method",
+  "description": "ConnectionPool.drain() removed",
+  "file": "src/pyconnect/pool.py",
+  "expected_facts": [{"kind": "removed", "symbol": "ConnectionPool.drain"}],
+  "affected": [
+    {"doc": "docs/connection-pools.md", "heading": "Draining"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

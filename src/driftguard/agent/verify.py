@@ -61,9 +61,16 @@ def _check_fact(fact: DriftFact, text: str) -> list[str]:
             problems.append(f"old default value `{fact.old}` still appears")
         if not _mentions(text, fact.new):
             problems.append(f"new default value `{fact.new}` never appears")
+    elif fact.kind == "constant_changed":
+        if _mentions(text, fact.old):
+            problems.append(f"old value `{fact.old}` of `{fact.symbol}` still appears")
+        if not _mentions(text, fact.new):
+            problems.append(f"new value `{fact.new}` of `{fact.symbol}` never appears")
     elif fact.kind == "removed":
-        if _mentions_identifier(text, fact.old):
-            problems.append(f"removed function `{fact.old}` is still shown as callable API")
+        # Docs say "drain()", not "ConnectionPool.drain" — check the last segment.
+        removed_short = str(fact.old).rpartition(".")[2]
+        if _mentions_identifier(text, removed_short):
+            problems.append(f"removed `{fact.old}` is still shown as available API")
     else:  # signature_changed — compare which parameter names each side shows
         old_params = _signature_params(fact.old)
         new_params = _signature_params(fact.new)

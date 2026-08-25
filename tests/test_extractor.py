@@ -92,7 +92,72 @@ def test_unparseable_source_produces_no_facts_instead_of_crashing():
     assert facts(broken, old) == []
 
 
-def test_methods_inside_classes_are_ignored_in_v1():
+# ---------- classes and methods (perimeter v1.1) ----------
+
+
+def test_method_default_change_is_detected_with_dotted_symbol():
     old = "class Client:\n    def connect(self, timeout=10):\n        ...\n"
     new = "class Client:\n    def connect(self, timeout=30):\n        ...\n"
+    result = facts(old, new)
+    assert len(result) == 1
+    assert result[0].kind == "default_changed"
+    assert result[0].symbol == "Client.connect.timeout"
+    assert (result[0].old, result[0].new) == ("10", "30")
+
+
+def test_self_is_not_a_parameter():
+    old = "class Client:\n    def ping(self):\n        return 1\n"
+    new = "class Client:\n    def ping(self):\n        return 2\n"
+    assert facts(old, new) == []  # body change only; self never counts
+
+
+def test_constructor_maps_to_the_class_name():
+    old = "class Pool:\n    def __init__(self, host, size=8):\n        ...\n"
+    new = "class Pool:\n    def __init__(self, host, size=4):\n        ...\n"
+    result = facts(old, new)
+    assert [(f.kind, f.symbol) for f in result] == [("default_changed", "Pool.size")]
+
+
+def test_removed_class_is_one_fact_not_one_per_method():
+    old = (
+        "class Pool:\n"
+        "    def __init__(self, host):\n        ...\n"
+        "    def acquire(self):\n        ...\n"
+        "    def release(self, conn):\n        ...\n"
+    )
+    result = facts(old, "")
+    assert [(f.kind, f.symbol) for f in result] == [("removed", "Pool")]
+
+
+def test_private_methods_are_not_documented_api():
+    old = "class Pool:\n    def _refill(self, count=1):\n        ...\n"
+    new = "class Pool:\n    def _refill(self, count=2):\n        ...\n"
     assert facts(old, new) == []
+
+
+# ---------- module constants (perimeter v1.1) ----------
+
+
+def test_constant_value_change_is_detected():
+    result = facts("POOL_TIMEOUT = 15\n", "POOL_TIMEOUT = 30\n")
+    assert len(result) == 1
+    fact = result[0]
+    assert fact.kind == "constant_changed"
+    assert fact.symbol == "POOL_TIMEOUT"
+    assert (fact.old, fact.new) == ("15", "30")
+
+
+def test_removed_constant_is_detected():
+    result = facts("MAX_POOL_SIZE = 8\n", "")
+    assert [(f.kind, f.symbol) for f in result] == [("removed", "MAX_POOL_SIZE")]
+
+
+def test_lowercase_module_variables_are_internals_not_constants():
+    assert facts("_retry_budget = 3\nlog = None\n", "_retry_budget = 5\nlog = 1\n") == []
+
+
+def test_annotated_constant_change_is_detected():
+    result = facts("TTL: int = 3600\n", "TTL: int = 7200\n")
+    assert [(f.kind, f.symbol, f.old, f.new) for f in result] == [
+        ("constant_changed", "TTL", "3600", "7200")
+    ]

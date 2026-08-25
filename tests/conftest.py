@@ -64,7 +64,11 @@ class FakeDriftModel:
     def propose_fix(self, chunk, facts, feedback=None):
         text = chunk.text
         for fact in facts:
-            if fact.kind in ("renamed", "default_changed") and fact.old and fact.new:
+            if (
+                fact.kind in ("renamed", "default_changed", "constant_changed")
+                and fact.old
+                and fact.new
+            ):
                 text = re.sub(rf"\b{re.escape(fact.old)}\b", fact.new, text)
         return text
 

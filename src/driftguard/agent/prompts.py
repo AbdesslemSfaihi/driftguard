@@ -55,21 +55,26 @@ Rules:
 
 
 def describe_fact(fact: DriftFact) -> str:
-    function_name, _, param = fact.symbol.partition(".")
+    owner, _, param = fact.symbol.rpartition(".")
     if fact.kind == "renamed":
         return (
-            f"Parameter `{fact.old}` of function `{function_name}()` was RENAMED"
+            f"Parameter `{fact.old}` of `{owner}()` was RENAMED"
             f" to `{fact.new}` (in {fact.file})."
         )
     if fact.kind == "default_changed":
         return (
-            f"The default value of parameter `{param}` of function `{function_name}()`"
+            f"The default value of parameter `{param}` of `{owner}()`"
             f" CHANGED from `{fact.old}` to `{fact.new}` (in {fact.file})."
         )
+    if fact.kind == "constant_changed":
+        return (
+            f"The module constant `{fact.symbol}` CHANGED from `{fact.old}`"
+            f" to `{fact.new}` (in {fact.file})."
+        )
     if fact.kind == "removed":
-        return f"The function `{fact.old}()` was REMOVED (from {fact.file})."
+        return f"`{fact.old}` was REMOVED — it no longer exists (in {fact.file})."
     return (
-        f"The signature of function `{fact.symbol}()` CHANGED from"
+        f"The signature of `{fact.symbol}()` CHANGED from"
         f" `{fact.symbol}{fact.old}` to `{fact.symbol}{fact.new}` (in {fact.file})."
     )
 

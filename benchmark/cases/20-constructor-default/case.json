@@ -1,0 +1,11 @@
+{
+  "id": "20-constructor-default",
+  "description": "ConnectionPool(): constructor default size 8 -> 4",
+  "file": "src/pyconnect/pool.py",
+  "expected_facts": [{"kind": "default_changed", "symbol": "ConnectionPool.size"}],
+  "affected": [
+    {"doc": "docs/connection-pools.md", "heading": "Creating a pool"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

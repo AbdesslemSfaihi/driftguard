@@ -5,19 +5,26 @@ defaults. So queries lead with the old identifier (that is what drifted docs
 still say), while a natural-language variant gives the dense retriever
 something to work with. Deterministic on purpose: the agent may later add
 LLM query expansion, and the benchmark will tell us if it actually helps.
+
+Symbols may be dotted ("ConnectionPool.acquire.wait"); docs overwhelmingly say
+"acquire(wait=True)", not the fully qualified path, so queries use the LAST
+segments (the method and parameter names) with the full symbol kept as one
+extra exact-match query.
 """
 
 from driftguard.analysis.extractor import DriftFact
 
 
 def queries_for_fact(fact: DriftFact) -> list[str]:
-    function_name, _, param = fact.symbol.partition(".")
+    owner, _, param = fact.symbol.rpartition(".")
+    owner_short = owner.rpartition(".")[2] or fact.symbol
+    symbol_short = fact.symbol.rpartition(".")[2]
 
     if fact.kind == "renamed":
         return _dedupe(
             [
                 str(fact.old),
-                f"{function_name} {fact.old}",
+                f"{owner_short} {fact.old}",
                 f"{fact.old} parameter option",
             ]
         )
@@ -25,24 +32,34 @@ def queries_for_fact(fact: DriftFact) -> list[str]:
         return _dedupe(
             [
                 f"{param} {fact.old}",
-                f"{function_name} {param} default",
+                f"{owner_short} {param} default",
                 f"default {param} value",
             ]
         )
+    if fact.kind == "constant_changed":
+        return _dedupe(
+            [
+                str(fact.symbol),
+                f"{fact.symbol} {fact.old}",
+                f"{fact.symbol} default value",
+            ]
+        )
     if fact.kind == "removed":
+        removed_short = str(fact.old).rpartition(".")[2]
         return _dedupe(
             [
                 str(fact.old),
-                f"{fact.old} function usage",
-                f"how to use {fact.old}",
+                removed_short,
+                f"{removed_short} function usage",
+                f"how to use {removed_short}",
             ]
         )
     # signature_changed
     return _dedupe(
         [
-            function_name,
-            f"{function_name} parameters arguments",
-            f"{function_name} example",
+            symbol_short,
+            f"{symbol_short} parameters arguments",
+            f"{symbol_short} example",
         ]
     )
 
