@@ -71,6 +71,43 @@ def test_empty_or_unchanged_rewrites_are_rejected():
     assert "nothing was changed" in verify_fix([RENAME], old, old)
 
 
+def test_live_regression_plain_english_timeout_is_not_the_identifier():
+    """Verbatim from the first live run on pyconnect-demo: this CORRECT rewrite
+    was rejected because 'a timeout error' tripped the old strict check."""
+    old = (
+        "### connect(host, timeout=10)\n\n"
+        "Open a connection to *host*. Waits up to *timeout* seconds (default 10)\n"
+        "before raising a timeout error. Returns a session object."
+    )
+    new = (
+        "### connect(host, request_timeout=30)\n\n"
+        "Open a connection to *host*. Waits up to *request_timeout* seconds (default 30)\n"
+        "before raising a timeout error. Returns a session object."
+    )
+    assert verify_fix([RENAME, DEFAULT], old, new) is None
+
+
+def test_identifier_contexts_still_flag_the_old_name():
+    old = "## Timeouts\n\nSet `timeout` here."
+    identifier_uses = [
+        "Set `timeout` to five.",  # backticks
+        "The *timeout* option.",  # emphasis
+        "Pass timeout=5 to connect().",  # keyword usage
+        "```python\nconnect(h, timeout=5)\n```",  # code fence
+    ]
+    for bad in identifier_uses:
+        new = f"## Timeouts\n\nUse `request_timeout`. {bad}"
+        assert "identifier" in verify_fix([RENAME], old, new), bad
+
+
+def test_removed_function_in_plain_prose_is_allowed():
+    old = "Call `close()` when done."
+    fact = DriftFact("removed", "close", "close", None, "client.py")
+    # "sessions close automatically" is English, not an API reference.
+    assert verify_fix([fact], old, "Sessions close automatically when dropped.") is None
+    assert "close" in verify_fix([fact], old, "Call close(session) when done.")
+
+
 def test_multiple_facts_are_all_enforced():
     old = "## Timeouts\n\nSet `timeout`. The default is 10."
     half_fixed = "## Timeouts\n\nSet `request_timeout`. The default is 10."

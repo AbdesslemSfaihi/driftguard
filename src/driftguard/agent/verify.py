@@ -7,12 +7,19 @@ gone, the new default must appear, ...). Verification is therefore plain code:
 free, instant, and impossible to sweet-talk. A failed check becomes feedback
 for one bounded retry; a fix that never passes is dropped, not published —
 precision over recall, always.
+
+The old-identifier checks are CONTEXT-AWARE: `timeout` the parameter must
+disappear, but "raising a timeout error" is legitimate English and must not
+fail a fix. The first live run proved this matters — a correct api-reference
+rewrite was rejected because the strict check could not tell the two apart.
+An occurrence counts as the identifier only inside code fences, backticks,
+emphasis markers, or when followed by '=' or '('.
 """
 
 import re
 
 from driftguard.analysis.extractor import DriftFact
-from driftguard.indexing.chunker import HEADING_RE
+from driftguard.indexing.chunker import FENCE_RE, HEADING_RE
 
 
 def verify_fix(facts: list[DriftFact], old_text: str, new_text: str) -> str | None:
@@ -43,18 +50,20 @@ def verify_fix(facts: list[DriftFact], old_text: str, new_text: str) -> str | No
 def _check_fact(fact: DriftFact, text: str) -> list[str]:
     problems: list[str] = []
     if fact.kind == "renamed":
-        if _mentions(text, fact.old):
-            problems.append(f"old parameter name `{fact.old}` still appears")
+        if _mentions_identifier(text, fact.old):
+            problems.append(f"old parameter name `{fact.old}` still appears as an identifier")
         if not _mentions(text, fact.new):
             problems.append(f"new parameter name `{fact.new}` never appears")
     elif fact.kind == "default_changed":
+        # Values stay strict on purpose: a lingering "10 seconds" in prose IS
+        # usually the stale default, unlike a name which doubles as English.
         if _mentions(text, fact.old):
             problems.append(f"old default value `{fact.old}` still appears")
         if not _mentions(text, fact.new):
             problems.append(f"new default value `{fact.new}` never appears")
     elif fact.kind == "removed":
-        if _mentions(text, fact.old):
-            problems.append(f"removed function `{fact.old}` is still mentioned")
+        if _mentions_identifier(text, fact.old):
+            problems.append(f"removed function `{fact.old}` is still shown as callable API")
     else:  # signature_changed — compare which parameter names each side shows
         old_params = _signature_params(fact.old)
         new_params = _signature_params(fact.new)
@@ -78,6 +87,35 @@ def _mentions(text: str, value: str | None) -> bool:
     if not needle:
         return False
     return re.search(rf"\b{re.escape(needle)}\b", text) is not None
+
+
+def _mentions_identifier(text: str, name: str | None) -> bool:
+    """True when *name* appears AS A CODE IDENTIFIER: inside a fenced code
+    block, touching backticks or emphasis markers, or followed by '=' or '('.
+    Plain-English use of the same word is not a contradiction — "raising a
+    timeout error" is fine after `timeout` was renamed. Used only for
+    must-be-gone checks; presence checks stay loose (any mention is evidence)."""
+    if not name:
+        return False
+    needle = name.strip("\"'")
+    if not needle:
+        return False
+    pattern = re.compile(rf"\b{re.escape(needle)}\b")
+    in_fence = False
+    for line in text.splitlines():
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        for match in pattern.finditer(line):
+            if in_fence:
+                return True
+            before = line[match.start() - 1] if match.start() > 0 else " "
+            after = line[match.end() :].lstrip() or " "
+            if before in "`*" or line[match.end() : match.end() + 1] in ("`", "*"):
+                return True
+            if after[0] in "=(":
+                return True
+    return False
 
 
 def _signature_params(rendered: str | None) -> set[str]:
