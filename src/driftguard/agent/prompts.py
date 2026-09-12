@@ -31,13 +31,21 @@ For EACH section, decide what the fact means for it:
 - "historical": the section intentionally describes the past — release notes,
   changelogs, migration guides, "in version X" narratives. Such sections are
   correct BECAUSE they describe old behavior and must never be edited.
-- "unsure": you can NAME the specific missing piece of information that decides
-  between drifted and accurate — most often, which of several functions a
-  statement is about ("3 attempts by default" when two functions both matched
-  that description before the change). Set the question field to ONE short
-  question a maintainer can answer from memory, ideally yes/no. "unsure" is
-  never a hedge on a hard call: if the section itself tells you what it refers
-  to, decide. An "unsure" verdict without a concrete question is discarded.
+- "unsure": the fact is a changed VALUE (a default or a constant) and the
+  section states the OLD value but never identifies WHICH API it describes —
+  no function, class, or constant name anywhere in its heading, prose, or
+  code, only a bare value ("3 attempts in total by default", "tops out at 8
+  connections") that another part of the library could equally own. A
+  matching number is not attribution, and topical hints ("send", "endpoint",
+  "connection") are not identification either — only a name is. You cannot
+  verify from the section alone that it is about the changed symbol, so do
+  not guess: set the question field to ONE short question a maintainer can
+  answer from memory, ideally yes/no ("Is this FAQ answer about deliver()?").
+  If the section names the changed symbol, decide. Renames, removals and
+  signature changes are never "unsure": a section that does not show the old
+  identifier as current API is simply accurate (prose using the word in
+  English, code passing the value positionally). An "unsure" verdict without
+  a concrete question is discarded.
 
 Be precise, not eager: a wrong "drifted" verdict costs developer trust.
 Two precision rules, added after measured judgment failures:

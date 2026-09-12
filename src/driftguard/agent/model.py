@@ -59,6 +59,49 @@ class ProposedFix(BaseModel):
     new_text: str
 
 
+# Only a changed VALUE can leave a section undecidable: "3 attempts by default"
+# may describe another function with the same default. A rename, removal or
+# signature change is contradicted only by the old identifier shown as current
+# API — a section that shows it is decidable, and one that does not is simply
+# accurate. So a question about an identifier fact is never warranted.
+VALUE_FACT_KINDS = frozenset({"default_changed", "constant_changed"})
+
+
+def normalize_verdicts(
+    fact: DriftFact, chunks: list[DocChunk], verdicts: list[SectionVerdict]
+) -> list[SectionVerdict]:
+    """Trust but verify the model's echo. Rules that code can enforce are not
+    left to the prompt (precision first, every time):
+
+    - verdicts for unknown chunk_ids are dropped; sections the model skipped
+      default to "no action";
+    - an "unsure" without a question is a hedge, not an escalation — demoted;
+    - an "unsure" about a rename, removal or signature change is demoted: the
+      prompt says so too, but a model that ignores the rule would interrupt a
+      maintainer for nothing (measured: two needless questions per run).
+    """
+    known = {chunk.chunk_id for chunk in chunks}
+    kept = [v for v in verdicts if v.chunk_id in known]
+    missing = known - {v.chunk_id for v in kept}
+    if missing:
+        log.warning("judge returned no verdict for %s — treated as accurate", sorted(missing))
+    for verdict in kept:
+        if verdict.verdict != "unsure":
+            continue
+        if not verdict.question.strip():
+            log.warning("unsure verdict for %s has no question — demoted", verdict.chunk_id)
+            verdict.verdict = "accurate"
+        elif fact.kind not in VALUE_FACT_KINDS:
+            log.info(
+                "unsure verdict for %s on a %s fact — only values can be ambiguous, demoted",
+                verdict.chunk_id,
+                fact.kind,
+            )
+            verdict.verdict = "accurate"
+            verdict.question = ""
+    return kept
+
+
 class DriftModel(Protocol):
     model_name: str
 
@@ -76,7 +119,7 @@ class DriftModel(Protocol):
 
 
 class AnthropicModel:
-    def __init__(self, api_key: str, model: str = "claude-opus-5"):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-5"):
         self.model_name = model
         self._client = anthropic.Anthropic(api_key=api_key)
 
@@ -89,20 +132,7 @@ class AnthropicModel:
             output_format=JudgeResponse,
         )
         self._check_stop(response)
-        # Trust but verify the echo: verdicts for unknown chunk_ids are dropped,
-        # sections the model skipped default to "no action" (precision first).
-        known = {chunk.chunk_id for chunk in chunks}
-        verdicts = [v for v in response.parsed_output.verdicts if v.chunk_id in known]
-        missing = known - {v.chunk_id for v in verdicts}
-        if missing:
-            log.warning("judge returned no verdict for %s — treated as accurate", sorted(missing))
-        # An "unsure" that names no question is a hedge, not an escalation —
-        # there is nothing to ask a developer. Demote it (precision first).
-        for verdict in verdicts:
-            if verdict.verdict == "unsure" and not verdict.question.strip():
-                log.warning("unsure verdict for %s has no question — demoted", verdict.chunk_id)
-                verdict.verdict = "accurate"
-        return verdicts
+        return normalize_verdicts(fact, chunks, response.parsed_output.verdicts)
 
     def propose_fix(
         self,

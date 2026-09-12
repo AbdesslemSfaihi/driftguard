@@ -25,7 +25,10 @@ class Settings(BaseSettings):
 
     # Agent (judgment + writing)
     anthropic_api_key: str = ""  # empty = stop after fact extraction
-    judge_model: str = "claude-opus-5"
+    # Measured on the benchmark: Sonnet 5 asks on every retrieved ambiguity at
+    # 100% judgment precision; Haiku 4.5 matches it on plain judgment but is
+    # inconsistent on asking (see benchmark/reports/ask-*.json).
+    judge_model: str = "claude-sonnet-5"
     max_fix_attempts: int = 2  # fixer retries per finding before it is dropped
     open_docs_prs: bool = True  # False = store verified proposals, never push/PR
 
