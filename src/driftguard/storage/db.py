@@ -63,11 +63,37 @@ CREATE TABLE IF NOT EXISTS proposals (
 ALTER TABLE deliveries ADD COLUMN docs_pr_url TEXT;
 """
 
+# V3: ask-the-developer questions. One row per question DriftGuard posted on a
+# merged PR. `q_label` ("Q1") is the handle the developer answers with, unique
+# per delivery so replaying a delivery converges (INSERT OR IGNORE) instead of
+# duplicating questions or clobbering recorded answers.
+SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS questions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id TEXT NOT NULL REFERENCES deliveries(delivery_id),
+    q_label     TEXT NOT NULL,
+    repo        TEXT NOT NULL,
+    pr_number   INTEGER NOT NULL,
+    fact_json   TEXT NOT NULL,      -- the DriftFact, so a follow-up run needs no re-extraction
+    doc_path    TEXT NOT NULL,
+    heading     TEXT NOT NULL,      -- how the section is re-located later (lines may shift)
+    question    TEXT NOT NULL,
+    comment_id  INTEGER,            -- the digest comment on GitHub, once posted
+    status      TEXT NOT NULL DEFAULT 'open',
+                -- open | resolved_accurate | resolved_fixed | fix_failed | stale
+    answer      TEXT,
+    answered_by TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    answered_at TEXT,
+    UNIQUE (delivery_id, q_label)
+);
+"""
+
 # MIGRATIONS[i] upgrades a database at user_version i to version i+1.
 # Append-only: never edit an entry that has shipped — add a new script instead.
 # V1 keeps IF NOT EXISTS so databases created before version tracking (they
 # have the tables but user_version == 0) upgrade in place without errors.
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2)
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -214,3 +240,92 @@ def set_docs_pr_url(db_path: Path, delivery_id: str, url: str) -> None:
         conn.execute(
             "UPDATE deliveries SET docs_pr_url = ? WHERE delivery_id = ?", (url, delivery_id)
         )
+
+
+# ---------- ask-the-developer questions ----------
+
+
+def save_questions(
+    db_path: Path,
+    delivery_id: str,
+    *,
+    repo: str,
+    pr_number: int,
+    questions: list[tuple[str, str, str, str, str]],
+) -> None:
+    """Persist pending questions as (q_label, fact_json, doc_path, heading, question).
+
+    INSERT OR IGNORE on (delivery_id, q_label), NOT delete+insert like facts and
+    proposals: a replayed delivery must not clobber a question a developer has
+    already answered — recorded answers are the one thing replay may not redo.
+    """
+    with closing(_connect(db_path)) as conn, conn:
+        conn.executemany(
+            "INSERT OR IGNORE INTO questions"
+            " (delivery_id, q_label, repo, pr_number, fact_json, doc_path, heading, question)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (delivery_id, label, repo, pr_number, fact_json, doc_path, heading, question)
+                for label, fact_json, doc_path, heading, question in questions
+            ],
+        )
+
+
+def set_questions_comment(db_path: Path, delivery_id: str, comment_id: int) -> None:
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute(
+            "UPDATE questions SET comment_id = ? WHERE delivery_id = ? AND comment_id IS NULL",
+            (comment_id, delivery_id),
+        )
+
+
+def questions_comment_posted(db_path: Path, delivery_id: str) -> bool:
+    """True when this delivery's digest comment already went out — the replay
+    guard that keeps a re-run from spamming the PR with duplicates."""
+    with closing(_connect(db_path)) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM questions WHERE delivery_id = ? AND comment_id IS NOT NULL LIMIT 1",
+            (delivery_id,),
+        ).fetchone()
+        return row is not None
+
+
+def open_questions(db_path: Path, repo: str, pr_number: int) -> list[sqlite3.Row]:
+    with closing(_connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT * FROM questions WHERE repo = ? AND pr_number = ? AND status = 'open'"
+            " ORDER BY id",
+            (repo, pr_number),
+        ).fetchall()
+
+
+def has_open_questions(db_path: Path, repo: str, pr_number: int) -> bool:
+    with closing(_connect(db_path)) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM questions WHERE repo = ? AND pr_number = ? AND status = 'open' LIMIT 1",
+            (repo, pr_number),
+        ).fetchone()
+        return row is not None
+
+
+def resolve_question(
+    db_path: Path,
+    question_id: int,
+    *,
+    status: str,
+    answer: str | None = None,
+    answered_by: str | None = None,
+) -> None:
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute(
+            "UPDATE questions SET status = ?, answer = ?, answered_by = ?,"
+            " answered_at = datetime('now') WHERE id = ?",
+            (status, answer, answered_by, question_id),
+        )
+
+
+def questions_for_delivery(db_path: Path, delivery_id: str) -> list[sqlite3.Row]:
+    with closing(_connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT * FROM questions WHERE delivery_id = ? ORDER BY id", (delivery_id,)
+        ).fetchall()

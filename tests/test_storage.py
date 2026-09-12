@@ -91,3 +91,27 @@ def test_proposals_roundtrip_and_replace_on_rerun(tmp_path):
 
     db.set_docs_pr_url(path, "d-1", "https://github.com/a/b/pull/9")
     assert db.get_delivery(path, "d-1")["docs_pr_url"] == "https://github.com/a/b/pull/9"
+
+def test_replaying_a_delivery_never_clobbers_an_answered_question(tmp_path):
+    """save_questions is INSERT OR IGNORE, not delete+insert like facts and
+    proposals: a recorded answer is the one thing a replay may not redo."""
+    path = tmp_path / "questions.db"
+    record(path)
+    question = ("Q1", "{}", "docs/x.md", "X", "which function?")
+
+    db.save_questions(path, "d-1", repo="a/b", pr_number=1, questions=[question])
+    db.resolve_question(
+        path,
+        db.questions_for_delivery(path, "d-1")[0]["id"],
+        status="resolved_accurate",
+        answer="no, still fine",
+        answered_by="maria",
+    )
+    # The replayed run tries to save the same question again.
+    db.save_questions(path, "d-1", repo="a/b", pr_number=1, questions=[question])
+
+    rows = db.questions_for_delivery(path, "d-1")
+    assert len(rows) == 1
+    assert rows[0]["status"] == "resolved_accurate"
+    assert rows[0]["answer"] == "no, still fine"
+    assert not db.has_open_questions(path, "a/b", 1)
