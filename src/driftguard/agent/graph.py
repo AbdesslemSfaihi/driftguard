@@ -70,11 +70,45 @@ class Proposal:
     attempts: int = 0
 
 
+@dataclass(frozen=True)
+class SectionJudgment:
+    """The judge's verdict on one retrieved section for one fact.
+
+    Kept for EVERY section, not only the drifted ones: the evidence trail must
+    show what was left alone and why — a release-notes page judged historical
+    is a decision, not an omission. The ranks say which retriever surfaced the
+    section: the embedding search, the exact-word search, or both.
+    """
+
+    fact: DriftFact
+    chunk: DocChunk
+    dense_rank: int | None
+    sparse_rank: int | None
+    verdict: str
+    reason: str
+    question: str = ""
+
+
+def _judgment(
+    item: Evidence, chunk: DocChunk, verdict: str, reason: str, question: str = ""
+) -> SectionJudgment:
+    ranks = next(
+        (
+            (r.dense_rank, r.sparse_rank)
+            for r in item.results
+            if r.chunk.chunk_id == chunk.chunk_id
+        ),
+        (None, None),
+    )
+    return SectionJudgment(item.fact, chunk, ranks[0], ranks[1], verdict, reason, question)
+
+
 class AgentState(TypedDict, total=False):
     docs: dict[str, tuple[str, str]]  # doc_path -> (text, blob sha) at head_ref
     evidence: list[Evidence]
     proposals: list[Proposal]
     questions: list[PendingQuestion]
+    judgments: list[SectionJudgment]
     pr_url: str | None
 
 
@@ -84,6 +118,7 @@ class AgentResult:
     pr_url: str | None
     proposals: list[Proposal]
     questions: list[PendingQuestion] = field(default_factory=list)
+    judgments: list[SectionJudgment] = field(default_factory=list)
 
 
 def run_agent(
@@ -105,6 +140,7 @@ def run_agent(
 
     proposals = state.get("proposals") or []
     questions = state.get("questions") or []
+    judgments = state.get("judgments") or []
     pr_url = state.get("pr_url")
     if pr_url:
         status = "published"
@@ -116,7 +152,13 @@ def run_agent(
         status = "questions_open"
     else:
         status = "no_drift"
-    return AgentResult(status=status, pr_url=pr_url, proposals=proposals, questions=questions)
+    return AgentResult(
+        status=status,
+        pr_url=pr_url,
+        proposals=proposals,
+        questions=questions,
+        judgments=judgments,
+    )
 
 
 def _build_graph(
@@ -130,10 +172,16 @@ def _build_graph(
     facts: list[DriftFact],
     delivery_id: str,
 ):
+    def _stage(status: str) -> None:
+        # Progress is visible while the agent works — the story page polls it.
+        # The handler still owns every FINAL status.
+        db.set_status(settings.database_path, delivery_id, status)
+
     def search(_: AgentState) -> AgentState:
         """Fetch the repo's docs at the merge commit, index them, retrieve
         candidate sections per fact. The index is built per delivery: the docs
         being judged must be exactly the docs that exist AFTER the merge."""
+        _stage("searching")
         docs: dict[str, tuple[str, str]] = {}
         chunks: list[DocChunk] = []
         for path in client.markdown_paths(repo, head_ref):
@@ -160,26 +208,37 @@ def _build_graph(
         return {"docs": docs, "evidence": evidence}
 
     def judge(state: AgentState) -> AgentState:
+        _stage("judging")
         by_chunk: dict[str, Proposal] = {}
         unsure: dict[str, PendingQuestion] = {}  # one question per section max
+        judgments: list[SectionJudgment] = []
         for item in state["evidence"]:
             if not item.results:
                 continue
             candidates = {r.chunk.chunk_id: r.chunk for r in item.results}
-            for verdict in model.judge(item.fact, list(candidates.values())):
-                if verdict.verdict == "drifted":
-                    proposal = by_chunk.setdefault(
-                        verdict.chunk_id, Proposal(chunk=candidates[verdict.chunk_id])
+            verdicts = model.judge(item.fact, list(candidates.values()))
+            answered = {v.chunk_id for v in verdicts}
+            for chunk_id, chunk in candidates.items():
+                if chunk_id not in answered:  # skipped by the model: left alone, on record
+                    judgments.append(
+                        _judgment(item, chunk, "accurate", "no verdict returned — left alone")
                     )
+            for verdict in verdicts:
+                if verdict.chunk_id not in candidates:
+                    continue
+                chunk = candidates[verdict.chunk_id]
+                judgments.append(
+                    _judgment(item, chunk, verdict.verdict, verdict.reason, verdict.question)
+                )
+                if verdict.verdict == "drifted":
+                    proposal = by_chunk.setdefault(verdict.chunk_id, Proposal(chunk=chunk))
                     proposal.facts.append(item.fact)
                     proposal.reasons.append(verdict.reason)
                 elif verdict.verdict == "unsure" and verdict.question.strip():
                     unsure.setdefault(
                         verdict.chunk_id,
                         PendingQuestion(
-                            fact=item.fact,
-                            chunk=candidates[verdict.chunk_id],
-                            question=verdict.question.strip(),
+                            fact=item.fact, chunk=chunk, question=verdict.question.strip()
                         ),
                     )
         # A section already being fixed needs no question about itself:
@@ -187,7 +246,7 @@ def _build_graph(
         questions = [q for cid, q in unsure.items() if cid not in by_chunk]
         proposals = list(by_chunk.values())
         log.info("judge: %d drifted section(s), %d question(s)", len(proposals), len(questions))
-        return {"proposals": proposals, "questions": questions}
+        return {"proposals": proposals, "questions": questions, "judgments": judgments}
 
     def ask(state: AgentState) -> AgentState:
         """Escalate undecidable judgments to the developer on the merged PR.
@@ -200,6 +259,7 @@ def _build_graph(
         questions = state.get("questions") or []
         if not questions:
             return {}
+        _stage("asking")
         if len(questions) > settings.max_questions_per_run:
             dropped = questions[settings.max_questions_per_run :]
             log.warning(
@@ -240,6 +300,7 @@ def _build_graph(
         return {"questions": questions}
 
     def fix(state: AgentState) -> AgentState:
+        _stage("fixing")
         for proposal in state["proposals"]:
             if proposal.status != "pending":
                 continue
@@ -250,6 +311,7 @@ def _build_graph(
         return {"proposals": state["proposals"]}
 
     def verify(state: AgentState) -> AgentState:
+        _stage("verifying")
         for proposal in state["proposals"]:
             if proposal.status != "pending":
                 continue
@@ -270,6 +332,7 @@ def _build_graph(
         return {"proposals": state["proposals"]}
 
     def publish(state: AgentState) -> AgentState:
+        _stage("publishing")
         verified = [p for p in state["proposals"] if p.status == "verified"]
         if not settings.open_docs_prs:
             log.info("OPEN_DOCS_PRS is off — %d verified proposal(s) stored only", len(verified))

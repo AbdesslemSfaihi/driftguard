@@ -142,6 +142,7 @@ def _process_merged_pr(settings: Settings, row) -> None:
         return
 
     db.save_proposals(settings.database_path, delivery_id, result.proposals)
+    db.save_verdicts(settings.database_path, delivery_id, result.judgments)
     if result.questions:
         log.info(
             "delivery %s: %d question(s) awaiting a developer",

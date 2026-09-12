@@ -115,3 +115,40 @@ def test_replaying_a_delivery_never_clobbers_an_answered_question(tmp_path):
     assert rows[0]["status"] == "resolved_accurate"
     assert rows[0]["answer"] == "no, still fine"
     assert not db.has_open_questions(path, "a/b", 1)
+
+
+def test_verdicts_roundtrip_and_replace_on_rerun(tmp_path):
+    from driftguard.agent.graph import SectionJudgment
+    from driftguard.indexing.chunker import DocChunk
+
+    chunk = DocChunk("docs/faq.md", "FAQ > Retries", "text", "docs/faq.md::1", 2, 5)
+    judgment = SectionJudgment(FakeFact(), chunk, 1, None, "unsure", "names no function", "Which?")
+    path = tmp_path / "v.db"
+    record(path)
+    db.save_verdicts(path, "d-1", [judgment])
+    db.save_verdicts(path, "d-1", [judgment])  # replay converges, never duplicates
+
+    rows = db.verdicts_for_delivery(path, "d-1")
+    assert len(rows) == 1
+    row = rows[0]
+    assert (row["fact"], row["verdict"], row["question"]) == (
+        "renamed:connect.timeout",
+        "unsure",
+        "Which?",
+    )
+    assert (row["dense_rank"], row["sparse_rank"]) == (1, None)
+
+
+def test_proposals_keep_attempts_and_verifier_feedback(tmp_path):
+    from driftguard.agent.graph import Proposal
+    from driftguard.indexing.chunker import DocChunk
+
+    chunk = DocChunk("docs/x.md", "X", "old", "docs/x.md::0", 0, 0)
+    proposal = Proposal(chunk=chunk, facts=[FakeFact()], reasons=["r"], new_text="old")
+    proposal.status, proposal.attempts, proposal.feedback = "rejected", 2, "nothing was changed"
+    path = tmp_path / "p2.db"
+    record(path)
+    db.save_proposals(path, "d-1", [proposal])
+
+    row = db.proposals_for_delivery(path, "d-1")[0]
+    assert (row["attempts"], row["feedback"]) == (2, "nothing was changed")

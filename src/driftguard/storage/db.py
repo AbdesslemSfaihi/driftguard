@@ -89,11 +89,36 @@ CREATE TABLE IF NOT EXISTS questions (
 );
 """
 
+# V4: the evidence trail behind each run — for the story page, and for anyone
+# asking "why did the bot open this PR?". One verdict row per (fact, retrieved
+# section), INCLUDING sections judged accurate or historical, i.e. left alone
+# on purpose; plus the fixer's attempt count and the verifier's last feedback
+# on each proposal.
+SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS verdicts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id TEXT NOT NULL REFERENCES deliveries(delivery_id),
+    fact        TEXT NOT NULL,      -- "default_changed:deliver.attempts"
+    chunk_id    TEXT NOT NULL,
+    doc_path    TEXT NOT NULL,
+    heading     TEXT NOT NULL,
+    dense_rank  INTEGER,            -- rank in the embedding search, when it found the section
+    sparse_rank INTEGER,            -- rank in the exact-word search, when it found the section
+    verdict     TEXT NOT NULL,      -- drifted | accurate | historical | unsure
+    reason      TEXT NOT NULL,
+    question    TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+ALTER TABLE proposals ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE proposals ADD COLUMN feedback TEXT;
+"""
+
 # MIGRATIONS[i] upgrades a database at user_version i to version i+1.
 # Append-only: never edit an entry that has shipped — add a new script instead.
 # V1 keeps IF NOT EXISTS so databases created before version tracking (they
 # have the tables but user_version == 0) upgrade in place without errors.
-MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3)
+MIGRATIONS: tuple[str, ...] = (SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4)
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -206,8 +231,8 @@ def save_proposals(db_path: Path, delivery_id: str, proposals: list[Any]) -> Non
         conn.execute("DELETE FROM proposals WHERE delivery_id = ?", (delivery_id,))
         conn.executemany(
             "INSERT INTO proposals (delivery_id, doc_path, heading, start_line, end_line,"
-            " old_text, new_text, facts, reasons, status)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " old_text, new_text, facts, reasons, status, attempts, feedback)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     delivery_id,
@@ -220,6 +245,8 @@ def save_proposals(db_path: Path, delivery_id: str, proposals: list[Any]) -> Non
                     ", ".join(f"{f.kind}:{f.symbol}" for f in p.facts),
                     "\n".join(p.reasons),
                     p.status,
+                    p.attempts,
+                    p.feedback,
                 )
                 for p in proposals
             ],
@@ -230,7 +257,8 @@ def proposals_for_delivery(db_path: Path, delivery_id: str) -> list[sqlite3.Row]
     with closing(_connect(db_path)) as conn:
         return conn.execute(
             "SELECT doc_path, heading, start_line, end_line, old_text, new_text,"
-            " facts, reasons, status FROM proposals WHERE delivery_id = ? ORDER BY id",
+            " facts, reasons, status, attempts, feedback"
+            " FROM proposals WHERE delivery_id = ? ORDER BY id",
             (delivery_id,),
         ).fetchall()
 
@@ -328,4 +356,63 @@ def questions_for_delivery(db_path: Path, delivery_id: str) -> list[sqlite3.Row]
     with closing(_connect(db_path)) as conn:
         return conn.execute(
             "SELECT * FROM questions WHERE delivery_id = ? ORDER BY id", (delivery_id,)
+        ).fetchall()
+
+
+# ---------- evidence trail (verdicts) and story-page reads ----------
+
+
+def save_verdicts(db_path: Path, delivery_id: str, judgments: list[Any]) -> None:
+    """Persist the judge's verdict on every retrieved section (accepts
+    SectionJudgment instances). Replace-on-rerun, like facts and proposals."""
+    with closing(_connect(db_path)) as conn, conn:
+        conn.execute("DELETE FROM verdicts WHERE delivery_id = ?", (delivery_id,))
+        conn.executemany(
+            "INSERT INTO verdicts (delivery_id, fact, chunk_id, doc_path, heading,"
+            " dense_rank, sparse_rank, verdict, reason, question)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    delivery_id,
+                    f"{j.fact.kind}:{j.fact.symbol}",
+                    j.chunk.chunk_id,
+                    j.chunk.doc_path,
+                    j.chunk.heading_path,
+                    j.dense_rank,
+                    j.sparse_rank,
+                    j.verdict,
+                    j.reason,
+                    j.question or None,
+                )
+                for j in judgments
+            ],
+        )
+
+
+def verdicts_for_delivery(db_path: Path, delivery_id: str) -> list[sqlite3.Row]:
+    with closing(_connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT fact, chunk_id, doc_path, heading, dense_rank, sparse_rank, verdict,"
+            " reason, question FROM verdicts WHERE delivery_id = ? ORDER BY id",
+            (delivery_id,),
+        ).fetchall()
+
+
+def recent_deliveries(db_path: Path, limit: int = 50) -> list[sqlite3.Row]:
+    """Newest first, WITH the archived payload: the story page reads PR titles,
+    authors and links from it instead of storing them a second time."""
+    with closing(_connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT * FROM deliveries ORDER BY received_at DESC, rowid DESC LIMIT ?", (limit,)
+        ).fetchall()
+
+
+def deliveries_for_pr(db_path: Path, repo: str, pr_number: int) -> list[sqlite3.Row]:
+    """Every delivery about one pull request, oldest first: the merge itself,
+    then each answer comment that followed it."""
+    with closing(_connect(db_path)) as conn:
+        return conn.execute(
+            "SELECT * FROM deliveries WHERE repo = ? AND pr_number = ?"
+            " ORDER BY received_at, rowid",
+            (repo, pr_number),
         ).fetchall()

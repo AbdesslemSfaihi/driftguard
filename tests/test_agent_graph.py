@@ -152,6 +152,11 @@ def test_historical_pages_are_never_edited(tmp_path):
     touched = [p for m, p, _ in captured if m == "PUT"]
     assert all("release-notes" not in path for path in touched)
     assert all("release-notes" not in p.chunk.doc_path for p in result.proposals)
+    # ...and the decision is on record: the trail keeps verdicts for sections
+    # left alone, not only for the ones rewritten, each with its retrieval rank.
+    historical = [j for j in result.judgments if j.verdict == "historical"]
+    assert historical and all("release-notes" in j.chunk.doc_path for j in historical)
+    assert all(j.dense_rank or j.sparse_rank for j in result.judgments)
 
 
 def test_unfixable_finding_is_rejected_after_bounded_retries_no_pr(tmp_path):
