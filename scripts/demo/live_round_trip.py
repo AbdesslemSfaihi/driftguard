@@ -1,6 +1,6 @@
 """Drive the live ask-the-developer round trip on the demo repository.
 
-    python scripts/demo/live_round_trip.py merge             # merge a PR: deliver() attempts 3 -> 5
+    python scripts/demo/live_round_trip.py merge             # merge a PR raising deliver() attempts
     python scripts/demo/live_round_trip.py wait 7            # what the local server did with PR #7
     python scripts/demo/live_round_trip.py answer 7          # reply "Q1: yes ..." as the repo owner
     python scripts/demo/live_round_trip.py wait 7 --event issue_comment
@@ -57,9 +57,10 @@ def checked(response: httpx.Response, what: str) -> dict:
     return response.json()
 
 
-def merge(_: argparse.Namespace) -> None:
-    branch = "raise-deliver-attempts"
-    old, new = "def deliver(event, url, attempts=3):", "def deliver(event, url, attempts=5):"
+def merge(args: argparse.Namespace) -> None:
+    """Repeatable: reads the current default from main and raises it, so every
+    demo run produces a fresh merged PR with the same ambiguous shape."""
+    prefix = "def deliver(event, url, attempts="
     with github() as gh:
         ref = checked(gh.get(f"/repos/{REPO}/git/ref/heads/main"), "main ref")
         main_sha = ref["object"]["sha"]
@@ -68,12 +69,17 @@ def merge(_: argparse.Namespace) -> None:
             "read webhooks.py",
         )
         text = base64.b64decode(current["content"]).decode()
-        if text.count(old) != 1:
-            sys.exit("deliver() signature not found exactly once on main — already merged?")
+        if text.count(prefix) != 1:
+            sys.exit("deliver() signature not found exactly once on main")
+        start = text.index(prefix) + len(prefix)
+        old_value = int(text[start : text.index(")", start)])
+        new_value = args.attempts or old_value + 2
+        old, new = f"{prefix}{old_value}):", f"{prefix}{new_value}):"
+        branch = f"raise-deliver-attempts-{new_value}"
         ref_body = {"ref": f"refs/heads/{branch}", "sha": main_sha}
         checked(gh.post(f"/repos/{REPO}/git/refs", json=ref_body), "create branch")
         commit_body = {
-            "message": "feat: raise default webhook delivery attempts to 5",
+            "message": f"feat: raise default webhook delivery attempts to {new_value}",
             "content": base64.b64encode(text.replace(old, new).encode()).decode(),
             "branch": branch,
             "sha": current["sha"],
@@ -81,10 +87,10 @@ def merge(_: argparse.Namespace) -> None:
         contents_url = f"/repos/{REPO}/contents/src/pyconnect/webhooks.py"
         checked(gh.put(contents_url, json=commit_body), "commit")
         pr_body = {
-            "title": "feat: raise default webhook delivery attempts to 5",
+            "title": f"feat: raise default webhook delivery attempts to {new_value}",
             "head": branch,
             "base": "main",
-            "body": "deliver() now tries 5 times by default (was 3).",
+            "body": f"deliver() now tries {new_value} times by default (was {old_value}).",
         }
         pr = checked(gh.post(f"/repos/{REPO}/pulls", json=pr_body), "open PR")
         merge_url = f"/repos/{REPO}/pulls/{pr['number']}/merge"
@@ -141,7 +147,9 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("merge", help="open and merge the attempts 3 -> 5 PR").set_defaults(run=merge)
+    merge_cmd = sub.add_parser("merge", help="open and merge a PR raising deliver() attempts")
+    merge_cmd.add_argument("--attempts", type=int, help="new default (default: current + 2)")
+    merge_cmd.set_defaults(run=merge)
     wait_cmd = sub.add_parser("wait", help="wait for the local server to process a delivery")
     wait_cmd.add_argument("pr", type=int)
     wait_cmd.add_argument(
