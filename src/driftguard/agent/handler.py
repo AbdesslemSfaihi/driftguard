@@ -2,7 +2,7 @@
 
 This is the seam between the plumbing (webhook, storage) and the intelligence.
 The webhook returns 202 immediately and this runs afterwards, because GitHub
-gives a webhook ~10 seconds before it marks the delivery failed and retries â€”
+gives a webhook ~10 seconds before it marks the delivery failed and retries —
 agent work takes longer than that.
 
 Pipeline: fetch changed files -> extract drift facts -> persist -> agent graph
@@ -18,6 +18,7 @@ import logging
 import anthropic
 import httpx
 
+from driftguard.agent.answers import process_answers
 from driftguard.agent.graph import run_agent
 from driftguard.agent.model import AgentError, AnthropicModel
 from driftguard.analysis.pipeline import analyze_pr
@@ -42,7 +43,7 @@ def recover_pending(settings: Settings) -> int:
     """Re-run deliveries a previous process accepted but never finished.
 
     BackgroundTasks are in-process: a crash between the 202 response and the
-    end of process_delivery loses the task â€” but not the archived payload,
+    end of process_delivery loses the task — but not the archived payload,
     which stays at status 'received'. Called on startup, this turns the
     archive into a durable inbox: accepted work eventually runs, even across
     restarts. Returns how many deliveries were recovered.
@@ -59,7 +60,14 @@ def process_delivery(settings: Settings, delivery_id: str) -> None:
     if row is None:
         log.warning("delivery %s not found in database, nothing to process", delivery_id)
         return
+    if row["event"] == "issue_comment":
+        _process_answer_comment(settings, row)
+    else:
+        _process_merged_pr(settings, row)
 
+
+def _process_merged_pr(settings: Settings, row) -> None:
+    delivery_id = row["delivery_id"]
     payload = json.loads(row["payload_json"])
     pull_request = payload.get("pull_request") or {}
     log.info(
@@ -72,12 +80,12 @@ def process_delivery(settings: Settings, delivery_id: str) -> None:
 
     if not settings.github_token:
         # Keeps the pipeline demoable without credentials (and replayable offline).
-        log.info("GITHUB_TOKEN not set â€” delivery archived, analysis skipped")
+        log.info("GITHUB_TOKEN not set — delivery archived, analysis skipped")
         db.set_status(settings.database_path, delivery_id, "logged")
         return
 
     # base.sha = the commit the PR started from (old truth).
-    # merge_commit_sha = what actually landed on the default branch (new truth) â€”
+    # merge_commit_sha = what actually landed on the default branch (new truth) —
     # correct even for squash merges, where the PR head commit never lands.
     base_ref = (pull_request.get("base") or {}).get("sha")
     head_ref = pull_request.get("merge_commit_sha") or (pull_request.get("head") or {}).get("sha")
@@ -108,7 +116,7 @@ def process_delivery(settings: Settings, delivery_id: str) -> None:
             db.set_status(settings.database_path, delivery_id, "facts_extracted")
 
             if not settings.anthropic_api_key:
-                log.info("ANTHROPIC_API_KEY not set â€” facts extracted, agent skipped")
+                log.info("ANTHROPIC_API_KEY not set — facts extracted, agent skipped")
                 return
 
             result = run_agent(
@@ -147,3 +155,52 @@ def process_delivery(settings: Settings, delivery_id: str) -> None:
     else:
         db.set_status(settings.database_path, delivery_id, result.status)
         log.info("delivery %s: agent finished: %s", delivery_id, result.status)
+
+
+def _process_answer_comment(settings: Settings, row) -> None:
+    """A developer replied on a PR that has open questions.
+
+    Same credential gates as the merged-PR path, same failure policy: every
+    outcome lands in the delivery's status, so the replay CLI can re-run it.
+    """
+    delivery_id = row["delivery_id"]
+    payload = json.loads(row["payload_json"])
+    body = (payload.get("comment") or {}).get("body") or ""
+    author = ((payload.get("comment") or {}).get("user") or {}).get("login") or "unknown"
+
+    if not settings.github_token or not settings.anthropic_api_key:
+        # Reading the answer takes the model; applying it takes GitHub. The
+        # questions stay open and the archived delivery stays replayable.
+        log.info("delivery %s: credentials missing — answer archived, not processed", delivery_id)
+        db.set_status(settings.database_path, delivery_id, "logged")
+        return
+
+    try:
+        with GitHubClient(settings.github_token) as client:
+            result = process_answers(
+                settings,
+                client,
+                _build_model(settings),
+                delivery_id=delivery_id,
+                repo=row["repo"],
+                pr_number=row["pr_number"],
+                comment_body=body,
+                author=author,
+            )
+    except (GitHubError, httpx.TransportError) as exc:
+        log.error("delivery %s: GitHub failed while applying an answer: %s", delivery_id, exc)
+        db.set_status(settings.database_path, delivery_id, "error")
+        return
+    except (AgentError, anthropic.APIError) as exc:
+        log.error("delivery %s: model failed while reading an answer: %s", delivery_id, exc)
+        db.set_status(settings.database_path, delivery_id, "agent_error")
+        return
+
+    db.save_proposals(settings.database_path, delivery_id, result.proposals)
+    if result.pr_url:
+        db.set_docs_pr_url(settings.database_path, delivery_id, result.pr_url)
+        db.set_status(settings.database_path, delivery_id, "docs_pr_opened")
+        log.info("delivery %s: follow-up docs PR opened: %s", delivery_id, result.pr_url)
+    else:
+        db.set_status(settings.database_path, delivery_id, result.status)
+        log.info("delivery %s: answers finished: %s", delivery_id, result.status)
