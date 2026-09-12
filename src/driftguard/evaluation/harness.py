@@ -15,6 +15,10 @@ pipeline stage by stage:
                       (labeled sections caught), precision (drifted verdicts
                       that are labeled), and PROTECTED pages — release notes
                       the judge must classify historical, never drifted.
+  4. ASKING           (same run) sections labeled "ambiguous" are undecidable
+                      on purpose — the right verdict is unsure + a question.
+                      Ask recall = escalated instead of guessed; ask precision
+                      = questions that were warranted.
 
 Control cases invert the game: zero facts must be produced.
 """
@@ -47,6 +51,16 @@ class CaseResult:
     judged_missed: list[str] = field(default_factory=list)
     false_alarms: list[str] = field(default_factory=list)
     protected_violations: list[str] = field(default_factory=list)
+    # Ask stage: sections labeled "ambiguous" are undecidable ON PURPOSE — the
+    # correct verdict is unsure-with-a-question. Asking anywhere else wastes a
+    # maintainer's time and is measured as a false ask.
+    asks_expected: int = 0
+    asks_hit: int = 0
+    asks_missed: list[str] = field(default_factory=list)
+    false_asks: list[str] = field(default_factory=list)
+    # Retrieval ceiling for asking: ambiguous sections the index never surfaced.
+    # An ask miss on one of these is a retrieval problem, not a judge problem.
+    asks_unretrieved: list[str] = field(default_factory=list)
 
     @property
     def facts_ok(self) -> bool:
@@ -88,6 +102,25 @@ class EvalReport:
         return hits / (hits + alarms) if (hits + alarms) else 1.0
 
     @property
+    def ask_recall(self) -> float:
+        """Of the planted-ambiguous sections, how many did the judge escalate
+        instead of deciding? Retrieval misses count as ask misses — the same
+        ceiling rule as judgment recall."""
+        expected = sum(c.asks_expected for c in self.cases)
+        hit = sum(c.asks_hit for c in self.cases)
+        return hit / expected if expected else 1.0
+
+    @property
+    def ask_precision(self) -> float:
+        """Of the questions the judge raised, how many were on genuinely
+        ambiguous sections? Every false ask interrupts a human for nothing —
+        and a judge that asks about everything would game judgment precision,
+        which is exactly what this metric exists to catch."""
+        hits = sum(c.asks_hit for c in self.cases)
+        noise = sum(len(c.false_asks) for c in self.cases)
+        return hits / (hits + noise) if (hits + noise) else 1.0
+
+    @property
     def protected_clean(self) -> bool:
         return all(not c.protected_violations for c in self.cases)
 
@@ -114,6 +147,8 @@ class EvalReport:
             report["judgment_recall"] = round(self.judgment_recall, 4)
             report["judgment_precision"] = round(self.judgment_precision, 4)
             report["protected_clean"] = self.protected_clean
+            report["ask_recall"] = round(self.ask_recall, 4)
+            report["ask_precision"] = round(self.ask_precision, 4)
         return report
 
 
@@ -174,6 +209,11 @@ def _run_case(
         missed_sections=missed,
         control=bool(meta.get("control")),
         control_clean=not meta.get("control") or not facts,
+        asks_unretrieved=[
+            f"{section['doc']} :: {section.get('heading', '*')}"
+            for section in meta.get("ambiguous", [])
+            if not any(_matches(chunk, section) for chunk in retrieved)
+        ],
     )
     if model is not None:
         _judge_case(result, meta, evidence, model)
@@ -182,16 +222,29 @@ def _run_case(
 
 def _judge_case(result: CaseResult, meta: dict, evidence: list, model) -> None:
     protected = set(meta.get("protected", []))
-    drifted: list[DocChunk] = []
-    seen: set[str] = set()
+    ambiguous = meta.get("ambiguous", [])
+    result.asks_expected = len(ambiguous)
+    # One outcome per section across ALL facts, resolved exactly as the agent's
+    # judge node resolves it: a "drifted" verdict from any fact settles the
+    # section, and a question another fact raised about it is dropped — the
+    # ambiguity is moot once the section is being rewritten anyway. Order-
+    # independent, so the scorecard cannot disagree with the graph on
+    # multi-fact cases (rename + default change hitting one section).
+    drifted_by_id: dict[str, DocChunk] = {}
+    unsure_by_id: dict[str, DocChunk] = {}
     for fact, chunks in evidence:
         if not chunks:
             continue
         by_id = {chunk.chunk_id: chunk for chunk in chunks}
         for verdict in model.judge(fact, chunks):
-            if verdict.verdict == "drifted" and verdict.chunk_id not in seen:
-                seen.add(verdict.chunk_id)
-                drifted.append(by_id[verdict.chunk_id])
+            if verdict.chunk_id not in by_id:
+                continue
+            if verdict.verdict == "drifted":
+                drifted_by_id.setdefault(verdict.chunk_id, by_id[verdict.chunk_id])
+            elif verdict.verdict == "unsure":
+                unsure_by_id.setdefault(verdict.chunk_id, by_id[verdict.chunk_id])
+    drifted = list(drifted_by_id.values())
+    asked = [chunk for cid, chunk in unsure_by_id.items() if cid not in drifted_by_id]
 
     for section in meta["affected"]:
         if any(_matches(chunk, section) for chunk in drifted):
@@ -199,11 +252,25 @@ def _judge_case(result: CaseResult, meta: dict, evidence: list, model) -> None:
         else:
             result.judged_missed.append(f"{section['doc']} :: {section.get('heading', '*')}")
 
+    for section in ambiguous:
+        if any(_matches(chunk, section) for chunk in asked):
+            result.asks_hit += 1
+        else:
+            result.asks_missed.append(f"{section['doc']} :: {section.get('heading', '*')}")
+
     for chunk in drifted:
         if chunk.doc_path in protected:
             result.protected_violations.append(f"{chunk.doc_path} :: {chunk.heading_path}")
         elif not any(_matches(chunk, section) for section in meta["affected"]):
+            # Includes "drifted" on an ambiguous section: claiming certainty
+            # about an undecidable is a coin-flip accusation — a false alarm.
             result.false_alarms.append(f"{chunk.doc_path} :: {chunk.heading_path}")
+
+    for chunk in asked:
+        # Asking is only correct on a labeled-ambiguous section. Anywhere else
+        # the evidence decided the case, and the question wastes a human.
+        if not any(_matches(chunk, section) for section in ambiguous):
+            result.false_asks.append(f"{chunk.doc_path} :: {chunk.heading_path}")
 
 
 def _matches(chunk: DocChunk, section: dict) -> bool:

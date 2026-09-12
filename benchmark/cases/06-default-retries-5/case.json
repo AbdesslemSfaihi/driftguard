@@ -1,11 +1,14 @@
 {
   "id": "06-default-retries-5",
-  "description": "request(): retries default changed from 2 to 5",
+  "description": "request(): retries default changed from 2 to 5. The FAQ's unattributed '3 attempts in total by default' was true of request() too (1 + 2 retries), so this change also makes that section undecidable — asking is the correct verdict there.",
   "file": "src/pyconnect/client.py",
   "expected_facts": [{"kind": "default_changed", "symbol": "request.retries"}],
   "affected": [
     {"doc": "docs/error-handling.md", "heading": "Automatic retries"},
     {"doc": "docs/api-reference.md", "heading": "request(method"}
+  ],
+  "ambiguous": [
+    {"doc": "docs/faq.md", "heading": "How many times is a failed send retried?"}
   ],
   "protected": ["docs/release-notes-v1.md"],
   "control": false

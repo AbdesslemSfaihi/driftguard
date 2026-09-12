@@ -20,6 +20,16 @@ You are probably running with strict mode enabled. By default
 `load_config` has `strict=False` and ignores unknown keys; strict mode
 turns them into errors. Check how you call it in CI.
 
+## How many times is a failed send retried?
+
+You get 3 attempts in total by default before the error is raised. If your
+endpoint is flaky, raise the relevant limit and add monitoring on your side.
+
+## How many parallel connections can I open?
+
+The pool tops out at 8 connections per host in the default setup. Raise it
+only if the server side is provisioned for the extra load.
+
 ## Does pyconnect support async?
 
 Not yet. All calls are blocking; run them in a thread pool if you need

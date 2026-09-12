@@ -1,0 +1,14 @@
+{
+  "id": "25-ambiguous-attempts-owner",
+  "description": "AMBIGUOUS: deliver(): attempts default 3 -> 5. The FAQ says '3 attempts in total by default' without naming a function — before the change that was true of BOTH deliver() (attempts=3) and request() (retries=2, so 3 attempts total). Whether the FAQ is now wrong depends on which one it describes; the docs do not say, so the correct verdict is unsure + a question, never a guess. The webhooks page names deliver() explicitly and stays a normal drifted section.",
+  "file": "src/pyconnect/webhooks.py",
+  "expected_facts": [{"kind": "default_changed", "symbol": "deliver.attempts"}],
+  "affected": [
+    {"doc": "docs/webhooks.md", "heading": "Delivery retries"}
+  ],
+  "ambiguous": [
+    {"doc": "docs/faq.md", "heading": "How many times is a failed send retried?"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}

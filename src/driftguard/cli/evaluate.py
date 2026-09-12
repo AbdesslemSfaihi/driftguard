@@ -71,8 +71,15 @@ def main() -> None:
         )
         for miss in case.missed_sections:
             print(f"{'':34s}   missed: {miss}")
+        for miss in case.asks_unretrieved:
+            print(f"{'':34s}   ambiguous not retrieved: {miss}")
         for violation in case.protected_violations:
             print(f"{'':34s}   PROTECTED VIOLATED: {violation}")
+        for miss in case.asks_missed:
+            cause = " (never retrieved)" if miss in case.asks_unretrieved else ""
+            print(f"{'':34s}   should have asked: {miss}{cause}")
+        for noise in case.false_asks:
+            print(f"{'':34s}   needless question: {noise}")
 
     print("-" * 72)
     print(
@@ -85,6 +92,8 @@ def main() -> None:
         print(
             f"JUDGMENT RECALL    {report.judgment_recall:6.1%}   judge={report.judge}\n"
             f"JUDGMENT PRECISION {report.judgment_precision:6.1%}   (target: >= 90%)\n"
+            f"ASK RECALL         {report.ask_recall:6.1%}   (asked on planted-ambiguous sections)\n"
+            f"ASK PRECISION      {report.ask_precision:6.1%}   (questions that were warranted)\n"
             f"PROTECTED PAGES    {'clean' if report.protected_clean else 'VIOLATED'}"
         )
 

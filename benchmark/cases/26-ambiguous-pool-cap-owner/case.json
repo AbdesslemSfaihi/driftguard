@@ -1,0 +1,14 @@
+{
+  "id": "26-ambiguous-pool-cap-owner",
+  "description": "AMBIGUOUS: module constant MAX_POOL_SIZE raised from 8 to 16; the ConnectionPool(size=8) constructor default is unchanged. The FAQ says 'the pool tops out at 8 connections per host in the default setup' without naming either — before the change that was true of BOTH. Whether the FAQ is now wrong depends on which one it paraphrases; the correct verdict is unsure + a question. The connection-pools page names MAX_POOL_SIZE explicitly and stays a normal drifted section.",
+  "file": "src/pyconnect/pool.py",
+  "expected_facts": [{"kind": "constant_changed", "symbol": "MAX_POOL_SIZE"}],
+  "affected": [
+    {"doc": "docs/connection-pools.md", "heading": "Creating a pool"}
+  ],
+  "ambiguous": [
+    {"doc": "docs/faq.md", "heading": "How many parallel connections can I open?"}
+  ],
+  "protected": ["docs/release-notes-v1.md"],
+  "control": false
+}
