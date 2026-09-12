@@ -73,6 +73,11 @@ and protected historical pages. The harness measures:
   did the judge mark drifted? Reported as recall, **precision** (the trust
   metric: target ≥ 90%), and **protected pages** — release notes the judge
   must classify `historical`, never edit.
+- **Asking** — planted-ambiguous sections (undecidable on purpose: a value two
+  functions could own) where the correct verdict is `unsure` + a question.
+  **Ask recall** = escalated instead of guessed; **ask precision** = questions
+  that were warranted. Without this, a judge could game precision by asking
+  about everything.
 
 ```bash
 python -m driftguard.cli.evaluate --embedder fake              # offline; runs in CI
@@ -92,9 +97,19 @@ After facts are extracted, a LangGraph state machine runs
 - **search** — fetches the repo's docs *at the merge commit*, builds the hybrid
   index in memory, retrieves top-k candidate sections per fact.
 - **judge** (Claude, structured outputs) — per fact, classifies each candidate
-  section `drifted` / `accurate` / `historical`. Historical pages (release
-  notes, changelogs) are never touched. Facts hitting the same section are
-  grouped into one rewrite.
+  section `drifted` / `accurate` / `historical` / `unsure`. Historical pages
+  (release notes, changelogs) are never touched. Facts hitting the same section
+  are grouped into one rewrite.
+- **ask** (week 3) — `unsure` verdicts become questions to the developer instead
+  of guesses: one digest comment on the merged PR (`Q1: ...`), each question
+  stored in SQLite. Clear findings continue unblocked — a slow answer never
+  holds up a verified fix. When the developer replies (`Q1: yes, that's
+  deliver()`), the answer arrives as an `issue_comment` webhook and a fresh
+  run applies it: the reply is read into a decision (the model translates, the
+  human decides — the judge is never re-run), the section is re-located in
+  today's docs by heading, and a follow-up docs PR cites the answer as
+  evidence. `ASK_DEVELOPER=false` stores questions without commenting;
+  `MAX_QUESTIONS_PER_RUN` caps how often a human gets interrupted.
 - **fix** (Claude) — rewrites the drifted section, minimal edits only.
 - **verify** (deterministic code, no LLM) — the old name must be gone, the new
   default must appear, removed functions must not be mentioned... A failing
@@ -117,7 +132,9 @@ src/driftguard/
 ├── github/     GitHub REST client: read at a ref, branch/PR write (week 1 ✓)
 ├── analysis/   AST drift-fact extractor + PR pipeline             (week 1 ✓)
 ├── indexing/   markdown chunking, FAISS + BM25 hybrid index       (week 1 ✓)
-├── agent/      LangGraph agent: search→judge→fix→verify→publish   (week 2 ✓)
-├── evaluation/ planted-drift harness (facts, retrieval, judgment) (week 2 ✓)
+├── agent/      LangGraph agent: search→judge→ask→fix→verify→publish
+│               + answer processing (human in the loop)            (week 3 ✓)
+├── evaluation/ planted-drift harness (facts, retrieval, judgment,
+│               ask metrics)                                       (week 3 ✓)
 └── cli/        replay + index + evaluate tools                    (week 1 ✓)
 ```
