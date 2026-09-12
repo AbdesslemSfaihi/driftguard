@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
 from driftguard import __version__
+from driftguard.agent.asking import QUESTION_MARKER
 from driftguard.agent.handler import process_delivery, recover_pending
 from driftguard.api.security import verify_signature
 from driftguard.config import Settings, get_settings
@@ -61,19 +62,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="body is not valid JSON") from exc
         action = payload.get("action")
         pull_request = payload.get("pull_request") or {}
+        repo = (payload.get("repository") or {}).get("full_name")
 
-        # DriftGuard only cares about PRs that actually landed. A closed-but-not-
-        # merged PR changed nothing, so it is acknowledged and dropped.
-        if event != "pull_request" or action != "closed" or not pull_request.get("merged"):
-            return {"status": "ignored", "reason": "not a merged pull request"}
+        if event == "pull_request":
+            # DriftGuard only cares about PRs that actually landed. A closed-but-
+            # not-merged PR changed nothing, so it is acknowledged and dropped.
+            if action != "closed" or not pull_request.get("merged"):
+                return {"status": "ignored", "reason": "not a merged pull request"}
+            pr_number = payload.get("number")
+        elif event == "issue_comment":
+            # A comment is only interesting when it might ANSWER one of our open
+            # questions: on a PR (issues carry a pull_request key then), not
+            # written by us (our digests carry the marker), and only while that
+            # PR actually has open questions — everything else is archived
+            # nowhere, because it is noise, not work.
+            issue = payload.get("issue") or {}
+            body = (payload.get("comment") or {}).get("body") or ""
+            if (
+                action != "created"
+                or "pull_request" not in issue
+                or QUESTION_MARKER in body
+                or not repo
+                or not db.has_open_questions(settings.database_path, repo, issue.get("number"))
+            ):
+                return {"status": "ignored", "reason": "not an answer to an open question"}
+            pr_number = issue.get("number")
+        else:
+            return {"status": "ignored", "reason": f"event {event!r} is not handled"}
 
         fresh = db.record_delivery(
             settings.database_path,
             delivery_id=delivery_id,
             event=event,
             action=action,
-            repo=(payload.get("repository") or {}).get("full_name"),
-            pr_number=payload.get("number"),
+            repo=repo,
+            pr_number=pr_number,
             payload=payload,
         )
         if not fresh:

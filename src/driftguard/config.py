@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     max_fix_attempts: int = 2  # fixer retries per finding before it is dropped
     open_docs_prs: bool = True  # False = store verified proposals, never push/PR
 
+    # Ask-the-developer flow (human in the loop)
+    ask_developer: bool = True  # False = store questions, never comment on the PR
+    max_questions_per_run: int = 3  # politeness cap: extra questions are dropped, logged
+
 
 @lru_cache
 def get_settings() -> Settings:

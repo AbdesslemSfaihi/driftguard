@@ -31,6 +31,13 @@ For EACH section, decide what the fact means for it:
 - "historical": the section intentionally describes the past — release notes,
   changelogs, migration guides, "in version X" narratives. Such sections are
   correct BECAUSE they describe old behavior and must never be edited.
+- "unsure": you can NAME the specific missing piece of information that decides
+  between drifted and accurate — most often, which of several functions a
+  statement is about ("3 attempts by default" when two functions both matched
+  that description before the change). Set the question field to ONE short
+  question a maintainer can answer from memory, ideally yes/no. "unsure" is
+  never a hedge on a hard call: if the section itself tells you what it refers
+  to, decide. An "unsure" verdict without a concrete question is discarded.
 
 Be precise, not eager: a wrong "drifted" verdict costs developer trust.
 Two precision rules, added after measured judgment failures:
@@ -45,6 +52,22 @@ Two precision rules, added after measured judgment failures:
   are drifted.
 Return exactly one verdict per section, echoing its chunk_id verbatim, with a
 one-sentence reason quoting or pointing at the contradicting statement.
+"""
+
+ANSWER_SYSTEM = """\
+You are DriftGuard's answer reader. DriftGuard asked a maintainer a question
+about a possibly-outdated documentation section; the maintainer replied on the
+pull request. Your only job is to READ the reply and report what the maintainer
+decided — you are a translator, not a judge, and you never overrule them:
+
+- "confirms_drift": the maintainer says the section IS about the changed code
+  and is now wrong.
+- "confirms_accurate": the maintainer says the section is NOT contradicted —
+  it refers to something else, or is still correct.
+- "unclear": the reply does not actually answer the question (a joke, a
+  tangent, "let me check"). Never guess a decision the maintainer did not make.
+
+Summarize their reasoning in one sentence, in your own words.
 """
 
 FIXER_SYSTEM = """\
@@ -98,8 +121,21 @@ def render_judge_request(fact: DriftFact, chunks: list[DocChunk]) -> str:
     return f"DRIFT FACT:\n{describe_fact(fact)}\n\nCANDIDATE SECTIONS:\n\n{sections}"
 
 
-def render_fix_request(chunk: DocChunk, facts: list[DriftFact], feedback: str | None) -> str:
+def render_fix_request(
+    chunk: DocChunk,
+    facts: list[DriftFact],
+    feedback: str | None,
+    developer_note: str | None = None,
+) -> str:
     fact_lines = "\n".join(f"- {describe_fact(fact)}" for fact in facts)
+    note = (
+        ""
+        if not developer_note
+        else (
+            "\n\nA MAINTAINER CONFIRMED this section is about the changed code:\n"
+            f"{developer_note}\n"
+        )
+    )
     retry = (
         ""
         if not feedback
@@ -109,7 +145,15 @@ def render_fix_request(chunk: DocChunk, facts: list[DriftFact], feedback: str | 
         )
     )
     return (
-        f"DRIFT FACTS (verified ground truth):\n{fact_lines}\n{retry}\n"
+        f"DRIFT FACTS (verified ground truth):\n{fact_lines}{note}{retry}\n"
         f"SECTION TO REWRITE (from {chunk.doc_path}, under \"{chunk.heading_path}\"):\n\n"
         f"{chunk.text}"
+    )
+
+
+def render_answer_request(question: str, fact: DriftFact, answer: str) -> str:
+    return (
+        f"THE CODE CHANGE THE QUESTION WAS ABOUT:\n{describe_fact(fact)}\n\n"
+        f"DRIFTGUARD ASKED:\n{question}\n\n"
+        f"THE MAINTAINER REPLIED:\n{answer}"
     )

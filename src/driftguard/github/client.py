@@ -124,7 +124,25 @@ class GitHubClient:
             if entry.get("type") == "blob" and entry["path"].endswith(".md")
         )
 
+    def ref_sha(self, repo: str, branch: str) -> str:
+        """Current head commit sha of a branch — the base for follow-up branches
+        created long after the original merge commit went stale."""
+        response = self._http.get(f"/repos/{repo}/git/ref/heads/{branch}")
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        return response.json()["object"]["sha"]
+
     # ---------- write operations (docs PR publishing) ----------
+
+    def create_issue_comment(self, repo: str, number: int, body: str) -> int:
+        """Post a comment on a PR (PRs are issues to this endpoint). Returns the
+        comment id, which the questions table records for the audit trail."""
+        response = self._http.post(
+            f"/repos/{repo}/issues/{number}/comments", json={"body": body}
+        )
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        return response.json()["id"]
 
     def create_branch(self, repo: str, branch: str, from_sha: str) -> None:
         response = self._http.post(

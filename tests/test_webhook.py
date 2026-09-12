@@ -94,6 +94,65 @@ def test_pending_deliveries_are_recovered(tmp_path):
     assert recover_pending(settings) == 0  # nothing pending twice
 
 
+def _app_with_open_question(tmp_path):
+    """A TestClient whose database holds one open question on PR #42."""
+    import json as _json
+
+    from fastapi.testclient import TestClient
+
+    from conftest import make_settings
+    from driftguard.api.webhook import create_app
+    from driftguard.storage import db
+
+    settings = make_settings(tmp_path)
+    fact_json = _json.dumps({"kind": "renamed", "symbol": "s", "old": "a", "new": "b", "file": "f"})
+    db.save_questions(
+        settings.database_path,
+        "delivery-1",
+        repo="abdesslem/driftguard-demo",
+        pr_number=42,
+        questions=[("Q1", fact_json, "docs/x.md", "X", "which one?")],
+    )
+    return TestClient(create_app(settings))
+
+
+def test_pr_comment_is_accepted_while_a_question_is_open(tmp_path):
+    from conftest import issue_comment_payload
+
+    app_client = _app_with_open_question(tmp_path)
+    response = post_webhook(app_client, issue_comment_payload(), event="issue_comment")
+    # No credentials in test settings: accepted, archived, processing stops at the gate.
+    assert response.status_code == 202
+    assert response.json()["status"] == "accepted"
+
+
+def test_pr_comment_without_open_questions_is_ignored(client):
+    from conftest import issue_comment_payload
+
+    response = post_webhook(client, issue_comment_payload(), event="issue_comment")
+    assert response.json()["status"] == "ignored"
+
+
+def test_our_own_digest_comment_is_ignored(tmp_path):
+    from conftest import issue_comment_payload
+    from driftguard.agent.asking import QUESTION_MARKER
+
+    app_client = _app_with_open_question(tmp_path)
+    payload = issue_comment_payload(body=f"**Q1** — ...\n{QUESTION_MARKER}")
+    response = post_webhook(app_client, payload, event="issue_comment")
+    assert response.json()["status"] == "ignored"
+
+
+def test_comment_on_a_plain_issue_is_ignored(tmp_path):
+    from conftest import issue_comment_payload
+
+    app_client = _app_with_open_question(tmp_path)
+    payload = issue_comment_payload()
+    del payload["issue"]["pull_request"]  # a plain issue, not a PR
+    response = post_webhook(app_client, payload, event="issue_comment")
+    assert response.json()["status"] == "ignored"
+
+
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200

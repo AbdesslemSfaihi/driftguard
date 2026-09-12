@@ -19,8 +19,10 @@ import anthropic
 from pydantic import BaseModel
 
 from driftguard.agent.prompts import (
+    ANSWER_SYSTEM,
     FIXER_SYSTEM,
     JUDGE_SYSTEM,
+    render_answer_request,
     render_fix_request,
     render_judge_request,
 )
@@ -36,8 +38,17 @@ class AgentError(RuntimeError):
 
 class SectionVerdict(BaseModel):
     chunk_id: str
-    verdict: Literal["drifted", "accurate", "historical"]
+    verdict: Literal["drifted", "accurate", "historical", "unsure"]
     reason: str
+    # Required when verdict == "unsure": the one question a maintainer can
+    # answer that decides drifted-vs-accurate. Enforced in judge(), not by the
+    # schema — an unsure without a question is demoted, never guessed at.
+    question: str = ""
+
+
+class AnswerResolution(BaseModel):
+    resolution: Literal["confirms_drift", "confirms_accurate", "unclear"]
+    summary: str
 
 
 class JudgeResponse(BaseModel):
@@ -54,8 +65,14 @@ class DriftModel(Protocol):
     def judge(self, fact: DriftFact, chunks: list[DocChunk]) -> list[SectionVerdict]: ...
 
     def propose_fix(
-        self, chunk: DocChunk, facts: list[DriftFact], feedback: str | None = None
+        self,
+        chunk: DocChunk,
+        facts: list[DriftFact],
+        feedback: str | None = None,
+        developer_note: str | None = None,
     ) -> str: ...
+
+    def interpret_answer(self, question: str, fact: DriftFact, answer: str) -> AnswerResolution: ...
 
 
 class AnthropicModel:
@@ -79,20 +96,46 @@ class AnthropicModel:
         missing = known - {v.chunk_id for v in verdicts}
         if missing:
             log.warning("judge returned no verdict for %s — treated as accurate", sorted(missing))
+        # An "unsure" that names no question is a hedge, not an escalation —
+        # there is nothing to ask a developer. Demote it (precision first).
+        for verdict in verdicts:
+            if verdict.verdict == "unsure" and not verdict.question.strip():
+                log.warning("unsure verdict for %s has no question — demoted", verdict.chunk_id)
+                verdict.verdict = "accurate"
         return verdicts
 
     def propose_fix(
-        self, chunk: DocChunk, facts: list[DriftFact], feedback: str | None = None
+        self,
+        chunk: DocChunk,
+        facts: list[DriftFact],
+        feedback: str | None = None,
+        developer_note: str | None = None,
     ) -> str:
         response = self._client.messages.parse(
             model=self.model_name,
             max_tokens=16000,
             system=FIXER_SYSTEM,
-            messages=[{"role": "user", "content": render_fix_request(chunk, facts, feedback)}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": render_fix_request(chunk, facts, feedback, developer_note),
+                }
+            ],
             output_format=ProposedFix,
         )
         self._check_stop(response)
         return response.parsed_output.new_text
+
+    def interpret_answer(self, question: str, fact: DriftFact, answer: str) -> AnswerResolution:
+        response = self._client.messages.parse(
+            model=self.model_name,
+            max_tokens=2000,
+            system=ANSWER_SYSTEM,
+            messages=[{"role": "user", "content": render_answer_request(question, fact, answer)}],
+            output_format=AnswerResolution,
+        )
+        self._check_stop(response)
+        return response.parsed_output
 
     @staticmethod
     def _check_stop(response: object) -> None:

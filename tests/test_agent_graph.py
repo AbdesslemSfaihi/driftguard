@@ -11,11 +11,13 @@ import json
 
 import httpx
 
-from conftest import FakeDriftModel, make_settings
+from conftest import UNSURE_MARKER, FakeDriftModel, make_settings
+from driftguard.agent.asking import QUESTION_MARKER
 from driftguard.agent.graph import run_agent
 from driftguard.analysis.extractor import DriftFact
 from driftguard.github.client import GitHubClient
 from driftguard.indexing.embedder import HashEmbedder
+from driftguard.storage import db
 
 REPO = "abdesslem/driftguard-demo"
 HEAD_SHA = "merge-sha"
@@ -36,6 +38,14 @@ The client retries failed requests twice.
 Always call close(session) when you are done with a connection.
 """
 
+# Only injected by the ask-flow tests: the marker makes the fake judge unsure.
+LIMITS_MD = f"""# Limits
+
+## General limits
+
+Every operation gives up after a timeout in the default setup. {UNSURE_MARKER}
+"""
+
 RELEASE_NOTES_MD = """# Release notes v1
 
 In v1 the `timeout` parameter was introduced with a default of 10.
@@ -50,10 +60,11 @@ def _b64(text: str) -> str:
     return base64.b64encode(text.encode()).decode()
 
 
-def make_fake_github(captured: list) -> httpx.MockTransport:
+def make_fake_github(captured: list, extra_docs: dict | None = None) -> httpx.MockTransport:
     docs = {
         "docs/config.md": ("doc-sha-1", CONFIG_MD),
         "docs/release-notes-v1.md": ("doc-sha-2", RELEASE_NOTES_MD),
+        **(extra_docs or {}),
     }
 
     def fake(request: httpx.Request) -> httpx.Response:
@@ -74,6 +85,8 @@ def make_fake_github(captured: list) -> httpx.MockTransport:
                 )
         if path == f"/repos/{REPO}/git/refs" and request.method == "POST":
             return httpx.Response(201, json={"ref": "created"})
+        if path == f"/repos/{REPO}/issues/7/comments" and request.method == "POST":
+            return httpx.Response(201, json={"id": 4242})
         if path == f"/repos/{REPO}/pulls" and request.method == "POST":
             return httpx.Response(201, json={"html_url": f"https://github.com/{REPO}/pull/99"})
         if path == f"/repos/{REPO}":
@@ -83,10 +96,10 @@ def make_fake_github(captured: list) -> httpx.MockTransport:
     return httpx.MockTransport(fake)
 
 
-def run(tmp_path, facts, **setting_overrides):
+def run(tmp_path, facts, extra_docs=None, **setting_overrides):
     captured: list = []
     settings = make_settings(tmp_path, **setting_overrides)
-    with GitHubClient("fake-token", transport=make_fake_github(captured)) as client:
+    with GitHubClient("fake-token", transport=make_fake_github(captured, extra_docs)) as client:
         result = run_agent(
             settings,
             client,
@@ -96,12 +109,13 @@ def run(tmp_path, facts, **setting_overrides):
             pr_number=7,
             head_ref=HEAD_SHA,
             facts=facts,
+            delivery_id="delivery-1",
         )
-    return result, captured
+    return result, settings, captured
 
 
 def test_rename_and_default_produce_one_verified_fix_and_a_pr(tmp_path):
-    result, captured = run(tmp_path, [RENAME, DEFAULT])
+    result, _, captured = run(tmp_path, [RENAME, DEFAULT])
 
     assert result.status == "published"
     assert result.pr_url == f"https://github.com/{REPO}/pull/99"
@@ -134,7 +148,7 @@ def test_rename_and_default_produce_one_verified_fix_and_a_pr(tmp_path):
 
 
 def test_historical_pages_are_never_edited(tmp_path):
-    result, captured = run(tmp_path, [RENAME, DEFAULT])
+    result, _, captured = run(tmp_path, [RENAME, DEFAULT])
     touched = [p for m, p, _ in captured if m == "PUT"]
     assert all("release-notes" not in path for path in touched)
     assert all("release-notes" not in p.chunk.doc_path for p in result.proposals)
@@ -143,7 +157,7 @@ def test_historical_pages_are_never_edited(tmp_path):
 def test_unfixable_finding_is_rejected_after_bounded_retries_no_pr(tmp_path):
     # FakeDriftModel cannot fix 'removed' facts (returns the text unchanged),
     # so verification fails every attempt and the finding must be dropped.
-    result, captured = run(tmp_path, [REMOVED])
+    result, _, captured = run(tmp_path, [REMOVED])
 
     assert result.status == "all_rejected"
     assert result.pr_url is None
@@ -154,9 +168,59 @@ def test_unfixable_finding_is_rejected_after_bounded_retries_no_pr(tmp_path):
 
 
 def test_open_docs_prs_off_stores_proposals_without_publishing(tmp_path):
-    result, captured = run(tmp_path, [RENAME], open_docs_prs=False)
+    result, _, captured = run(tmp_path, [RENAME], open_docs_prs=False)
 
     assert result.status == "proposals_ready"
     assert result.pr_url is None
     assert any(p.status == "verified" for p in result.proposals)
     assert not [c for c in captured if c[0] in ("POST", "PUT")]
+
+
+AMBIGUOUS_DOCS = {"docs/limits.md": ("doc-sha-3", LIMITS_MD)}
+
+
+def test_unsure_verdict_posts_a_question_and_clear_fixes_still_publish(tmp_path):
+    result, settings, captured = run(tmp_path, [RENAME, DEFAULT], extra_docs=AMBIGUOUS_DOCS)
+
+    # Partial publishing: the open question did NOT block the verified fix.
+    assert result.status == "published"
+    assert [q.label for q in result.questions] == ["Q1"]
+
+    # The digest went to the merged PR, carries the label, the question and
+    # our marker (so the webhook can ignore our own comment later).
+    comments = [body for m, p, body in captured if p.endswith("/issues/7/comments")]
+    assert len(comments) == 1
+    digest = comments[0]["body"]
+    assert "Q1" in digest and "docs/limits.md" in digest
+    assert QUESTION_MARKER in digest
+
+    # Persisted first, comment id recorded after: the answer webhook can match it.
+    rows = db.questions_for_delivery(settings.database_path, "delivery-1")
+    assert [(r["q_label"], r["status"], r["comment_id"]) for r in rows] == [("Q1", "open", 4242)]
+    assert db.has_open_questions(settings.database_path, REPO, 7)
+
+
+def test_ask_developer_off_stores_questions_without_commenting(tmp_path):
+    result, settings, captured = run(
+        tmp_path, [DEFAULT], extra_docs=AMBIGUOUS_DOCS, ask_developer=False, open_docs_prs=False
+    )
+
+    assert [q.label for q in result.questions] == ["Q1"]
+    assert not [c for c in captured if c[1].endswith("/comments")]
+    rows = db.questions_for_delivery(settings.database_path, "delivery-1")
+    assert [(r["q_label"], r["comment_id"]) for r in rows] == [("Q1", None)]
+
+
+def test_questions_capped_per_run(tmp_path):
+    many = {
+        f"docs/limits{i}.md": (f"sha-{i}", LIMITS_MD.replace("# Limits", f"# Limits {i}"))
+        for i in range(5)
+    }
+    result, _, captured = run(
+        tmp_path, [DEFAULT], extra_docs=many, max_questions_per_run=2, open_docs_prs=False
+    )
+
+    assert len(result.questions) == 2
+    comments = [body for m, p, body in captured if p.endswith("/issues/7/comments")]
+    assert len(comments) == 1
+    assert "Q3" not in comments[0]["body"]
