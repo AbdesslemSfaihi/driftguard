@@ -20,6 +20,12 @@ from driftguard.indexing.chunker import DocChunk
 # our own comments instead of processing them as developer answers.
 QUESTION_MARKER = "<!-- driftguard:questions -->"
 
+# GitHub's author_association values that carry authority over the docs. A
+# reply from anyone else is noise, not an answer: the question was asked of
+# the maintainers and only they can settle it. The docs PR is still reviewed
+# by a human, but a drive-by commenter must not be able to steer it.
+MAINTAINER_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
 # "Q1: it's about deliver()" / "**Q2** - no, still correct" — one answer per line.
 ANSWER_LINE_RE = re.compile(r"^\s*(?:\*\*)?[Qq](\d+)(?:\*\*)?\s*[:\-]\s*(\S.*)$", re.MULTILINE)
 

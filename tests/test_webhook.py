@@ -153,6 +153,26 @@ def test_comment_on_a_plain_issue_is_ignored(tmp_path):
     assert response.json()["status"] == "ignored"
 
 
+def test_comment_from_a_non_maintainer_is_ignored(tmp_path):
+    from conftest import issue_comment_payload
+
+    app_client = _app_with_open_question(tmp_path)
+    for association in ("NONE", "CONTRIBUTOR", "FIRST_TIME_CONTRIBUTOR"):
+        payload = issue_comment_payload(author="drive-by", association=association)
+        response = post_webhook(app_client, payload, event="issue_comment")
+        assert response.json()["reason"] == "commenter is not a maintainer"
+
+
+def test_a_collaborator_answer_is_accepted(tmp_path):
+    from conftest import issue_comment_payload
+
+    app_client = _app_with_open_question(tmp_path)
+    payload = issue_comment_payload(author="teammate", association="COLLABORATOR")
+    response = post_webhook(app_client, payload, event="issue_comment")
+    assert response.status_code == 202
+    assert response.json()["status"] == "accepted"
+
+
 def test_health(client):
     response = client.get("/health")
     assert response.status_code == 200

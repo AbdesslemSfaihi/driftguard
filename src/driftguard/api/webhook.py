@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 
 from driftguard import __version__
-from driftguard.agent.asking import QUESTION_MARKER
+from driftguard.agent.asking import MAINTAINER_ASSOCIATIONS, QUESTION_MARKER
 from driftguard.agent.handler import process_delivery, recover_pending
 from driftguard.api.security import verify_signature
 from driftguard.config import Settings, get_settings
@@ -77,15 +77,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # PR actually has open questions — everything else is archived
             # nowhere, because it is noise, not work.
             issue = payload.get("issue") or {}
-            body = (payload.get("comment") or {}).get("body") or ""
+            comment = payload.get("comment") or {}
             if (
                 action != "created"
                 or "pull_request" not in issue
-                or QUESTION_MARKER in body
+                or QUESTION_MARKER in (comment.get("body") or "")
                 or not repo
                 or not db.has_open_questions(settings.database_path, repo, issue.get("number"))
             ):
                 return {"status": "ignored", "reason": "not an answer to an open question"}
+            # Authority check last, so the log only fires for the interesting
+            # case: someone without write access replying to an open question.
+            if comment.get("author_association") not in MAINTAINER_ASSOCIATIONS:
+                log.info(
+                    "ignoring reply on %s#%s by %s (%s): not a maintainer",
+                    repo,
+                    issue.get("number"),
+                    (comment.get("user") or {}).get("login"),
+                    comment.get("author_association"),
+                )
+                return {"status": "ignored", "reason": "commenter is not a maintainer"}
             pr_number = issue.get("number")
         else:
             return {"status": "ignored", "reason": f"event {event!r} is not handled"}

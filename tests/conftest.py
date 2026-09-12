@@ -122,11 +122,21 @@ def merged_pr_payload(number: int = 42) -> dict:
     }
 
 
-def issue_comment_payload(number: int = 42, body: str = "Q1: yes", author: str = "maria") -> dict:
+def issue_comment_payload(
+    number: int = 42,
+    body: str = "Q1: yes",
+    author: str = "maria",
+    association: str = "OWNER",
+) -> dict:
     return {
         "action": "created",
         "issue": {"number": number, "pull_request": {"url": "https://api.github.com/..."}},
-        "comment": {"id": 555, "body": body, "user": {"login": author}},
+        "comment": {
+            "id": 555,
+            "body": body,
+            "user": {"login": author},
+            "author_association": association,
+        },
         "repository": {"full_name": "abdesslem/driftguard-demo"},
     }
 
