@@ -30,6 +30,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+driftguard = ["api/static/*"]
+
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]

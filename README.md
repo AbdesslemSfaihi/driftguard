@@ -149,6 +149,18 @@ The LLM never decides *what changed* (the AST extractor did) and never grades
 its own work (verification is code). Each credential gates one stage: no
 `GITHUB_TOKEN` = archive only; no `ANTHROPIC_API_KEY` = facts only.
 
+## The story page
+
+`http://localhost:8000/ui` lists every delivery; each opens a page that
+replays what the agent did with that merged PR, in the order it happened: the
+change and where it was made, the doc sections retrieval found and which
+retriever found them, the judge's verdict on every section including the ones
+left alone, each fix with its diff, attempt count and verifier feedback, the
+docs PR, and the question-and-answer thread with its follow-up PR. The page
+polls while a run is in progress, so a live demo shows the pipeline advancing
+stage by stage. Nothing is recomputed: every line comes from rows the agent
+stored while working (schema v4 adds the verdict trail).
+
 ## Live validation (demo repository)
 
 On the private demo repo `pyconnect-demo`, merged PR #7 (`deliver()` attempts
@@ -165,7 +177,7 @@ replayed offline with `python -m driftguard.cli.replay`.
 
 ```
 src/driftguard/
-├── api/        webhook gate: signature check, dedupe, archive     (week 1 ✓)
+├── api/        webhook gate (week 1 ✓) + read-only story page   (week 4 ✓)
 ├── storage/    SQLite (migrated): deliveries, facts, proposals    (week 1 ✓)
 ├── github/     GitHub REST client: read at a ref, branch/PR write (week 1 ✓)
 ├── analysis/   AST drift-fact extractor + PR pipeline             (week 1 ✓)

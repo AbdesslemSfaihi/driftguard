@@ -5,11 +5,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 
 from driftguard import __version__
 from driftguard.agent.asking import MAINTAINER_ASSOCIATIONS, QUESTION_MARKER
 from driftguard.agent.handler import process_delivery, recover_pending
 from driftguard.api.security import verify_signature
+from driftguard.api.ui import STATIC_DIR, ui_router
 from driftguard.config import Settings, get_settings
 from driftguard.storage import db
 
@@ -33,6 +35,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="DriftGuard", version=__version__, lifespan=lifespan)
+    # The story page: read-only, same process, same database (see api/ui.py).
+    app.include_router(ui_router(settings))
+    app.mount("/ui/static", StaticFiles(directory=str(STATIC_DIR)), name="ui-static")
 
     @app.get("/health")
     def health() -> dict[str, str]:
