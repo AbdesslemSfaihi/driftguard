@@ -90,9 +90,30 @@ python -m driftguard.cli.evaluate --embedder ollama            # real retrieval 
 python -m driftguard.cli.evaluate --embedder ollama --judge anthropic  # + judgment
 ```
 
-Current scores: fact recall **100%**, retrieval recall **97.7%** (nomic-embed-text)
-vs 88.4% (hash baseline) — the +9.3pt delta is the measured value of semantic
-embeddings.
+Measured scores (26 cases, nomic-embed-text, k=5; full reports in
+`benchmark/reports/`):
+
+| Stage | Metric | Sonnet 5 | Haiku 4.5 |
+|---|---|---|---|
+| extraction | fact recall (gate 100%) | 100% | 100% |
+| retrieval | recall@5 (hash baseline 90.9%) | 98.2% | 98.2% |
+| judgment | **precision** (trust metric, target ≥ 90%) | **100%** | 96.4% |
+| judgment | recall | 98.2% | 98.2% |
+| asking | ask recall | 80% | 80% |
+| asking | ask precision | 80%* | 100% |
+| protected pages | never edited | clean | clean |
+
+\* Sonnet's one needless question was about a rename; the code rule added
+right after (only a changed *value* can be ambiguous) removes that class of
+question. The one ask miss on both models is a retrieval miss, reported as
+such by the harness: the FAQ says "retried", the queries say "retries".
+
+The first ask measurement was **0%** — both judges called every
+planted-ambiguous section drifted, and a live run would have rewritten the FAQ
+on a guess. Two prompt iterations plus one code-enforced rule brought it to
+80%; the history of `benchmark/reports/ask-*.json` tells that story. The judge
+runs at the SDK's default temperature (the structured-output helper exposes no
+other), so identical inputs can get different verdicts from one run to the next.
 
 ## The agent (week 2)
 
@@ -127,6 +148,18 @@ After facts are extracted, a LangGraph state machine runs
 The LLM never decides *what changed* (the AST extractor did) and never grades
 its own work (verification is code). Each credential gates one stage: no
 `GITHUB_TOKEN` = archive only; no `ANTHROPIC_API_KEY` = facts only.
+
+## Live validation (demo repository)
+
+On the private demo repo `pyconnect-demo`, merged PR #7 (`deliver()` attempts
+3 → 5) produced in one run: docs PR #8 fixing the page that names `deliver()`
+(two words changed, the "Migrating from 0.x" narrative left alone) and question
+Q1 on PR #7 about the FAQ answer that names no function. The maintainer's reply
+`Q1: yes, that FAQ answer is about deliver()` arrived as an `issue_comment`
+webhook and became follow-up PR #9, citing the answer as evidence. Only
+comments from OWNER / MEMBER / COLLABORATOR accounts count as answers.
+`scripts/demo/live_round_trip.py` drives this sequence; every delivery can be
+replayed offline with `python -m driftguard.cli.replay`.
 
 ## Project layout
 
