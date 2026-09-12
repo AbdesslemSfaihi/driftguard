@@ -5,8 +5,9 @@ makes the documentation incorrect, proposes evidence-backed fixes, verifies them
 and opens a documentation PR for human review.
 
 > Capstone project — Abdesslem Sfaihi, 2026.
-> Proposal & architecture: see `DriftGuard-Proposal.html` (validated MVP perimeter:
-> Python repo + Markdown docs, 4 drift types, measured on a planted-drift benchmark).
+> Perimeter validated with the supervisor (proposal document kept outside this
+> repo): Python repos + Markdown docs, five drift kinds on module-level functions,
+> top-level classes and UPPER_CASE constants, measured on a planted-drift benchmark.
 
 ## Quickstart
 
@@ -32,7 +33,9 @@ npx smee-client --url https://smee.io/<your-channel> --target http://localhost:8
 
 Then on the GitHub repo: Settings → Webhooks → Add webhook →
 Payload URL = your smee channel, Content type = `application/json`,
-Secret = the value of `GITHUB_WEBHOOK_SECRET`, event = *Pull requests*.
+Secret = the value of `GITHUB_WEBHOOK_SECRET`, events = *Pull requests* **and**
+*Issue comments* (the second one carries developers' answers to DriftGuard's
+questions; without it the ask flow can never resume).
 
 ## Replaying archived events (no GitHub needed)
 
@@ -61,8 +64,10 @@ Reciprocal Rank Fusion.
 ## Benchmark & evaluation
 
 `benchmark/` contains a fake library (**pyconnect**) with realistic docs and
-16 labeled cases: planted drifts of all four v1 kinds, a no-drift control,
-and protected historical pages. The harness measures:
+26 labeled cases: planted drifts of all five kinds (removed, renamed, default
+changed, signature changed, constant changed), no-drift controls, hard judge
+cases (name collisions, inline history, English homonyms), planted-ambiguous
+sections, and protected historical pages. The harness measures:
 
 - **Fact recall** — did the AST extractor find every planted fact? Gate: 100%.
 - **Retrieval recall@k** — did hybrid search surface every affected doc
