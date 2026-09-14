@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 from conftest import issue_comment_payload, make_settings, merged_pr_payload
 from driftguard.agent.graph import Proposal, SectionJudgment
 from driftguard.analysis.extractor import DriftFact
-from driftguard.api.ui import diff_lines
 from driftguard.api.webhook import create_app
 from driftguard.indexing.chunker import DocChunk
 from driftguard.storage import db
+from driftguard.story import diff_lines
 
 REPO = "abdesslem/driftguard-demo"
 MERGE_SHA = "m" * 40
