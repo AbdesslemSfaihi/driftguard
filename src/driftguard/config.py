@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     ask_developer: bool = True  # False = store questions, never comment on the PR
     max_questions_per_run: int = 3  # politeness cap: extra questions are dropped, logged
 
+    # Notifications: one JSON event per finished run, POSTed to a webhook
+    # (n8n in this project — docs/n8n-notifications.md). Empty URL = off.
+    notify_webhook_url: str = ""
+    notify_webhook_token: str = ""  # sent as X-DriftGuard-Token; n8n checks it (Header Auth)
+    public_base_url: str = "http://localhost:8000"  # base for story-page links in events
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -173,6 +173,21 @@ comments from OWNER / MEMBER / COLLABORATOR accounts count as answers.
 `scripts/demo/live_round_trip.py` drives this sequence; every delivery can be
 replayed offline with `python -m driftguard.cli.replay`.
 
+## Notifications (n8n)
+
+At the end of every run DriftGuard POSTs one JSON event to `NOTIFY_WEBHOOK_URL`
+with a `severity` of `action` (review a docs PR, answer a question), `alert`
+(the run failed) or `info` (nothing to do), a one-sentence `summary`, the PR and
+docs PR links and the story-page link. An n8n workflow receives it, switches on
+`severity` and posts to the team's channel; DriftGuard states what happened,
+n8n decides who hears about it. Delivery is fire-and-forget: a chat outage never
+changes a run's status. Setup, click by click: [docs/n8n-notifications.md](docs/n8n-notifications.md).
+
+```bash
+python -m driftguard.cli.notify --latest --print      # the exact event a consumer receives
+python -m driftguard.cli.notify --latest --url http://localhost:5678/webhook-test/driftguard
+```
+
 ## Project layout
 
 ```
@@ -186,5 +201,8 @@ src/driftguard/
 │               + answer processing (human in the loop)            (week 3 ✓)
 ├── evaluation/ planted-drift harness (facts, retrieval, judgment,
 │               ask metrics)                                       (week 3 ✓)
-└── cli/        replay + index + evaluate tools                    (week 1 ✓)
+├── story.py    the run story as data — read model shared by the page
+│               and the notifications                              (week 4 ✓)
+├── notify.py   one JSON event per finished run, routed by n8n     (week 4 ✓)
+└── cli/        replay + index + evaluate + notify tools           (week 1 ✓)
 ```

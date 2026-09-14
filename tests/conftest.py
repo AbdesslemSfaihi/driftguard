@@ -28,6 +28,9 @@ def make_settings(tmp_path: Path, **overrides) -> Settings:
         "max_fix_attempts": 2,
         "ask_developer": True,
         "max_questions_per_run": 3,
+        "notify_webhook_url": "",
+        "notify_webhook_token": "",
+        "public_base_url": "http://localhost:8000",
     }
     values.update(overrides)
     return Settings(**values)

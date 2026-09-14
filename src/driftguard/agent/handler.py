@@ -25,6 +25,7 @@ from driftguard.analysis.pipeline import analyze_pr
 from driftguard.config import Settings
 from driftguard.github.client import GitHubClient, GitHubError
 from driftguard.indexing.embedder import EmbeddingError, OllamaEmbedder
+from driftguard.notify import notify
 from driftguard.storage import db
 
 log = logging.getLogger("driftguard.agent")
@@ -64,6 +65,9 @@ def process_delivery(settings: Settings, delivery_id: str) -> None:
         _process_answer_comment(settings, row)
     else:
         _process_merged_pr(settings, row)
+    # Every path above ends by setting the delivery's final status; one
+    # notification per finished run, whatever the outcome (see notify.py).
+    notify(settings, delivery_id)
 
 
 def _process_merged_pr(settings: Settings, row) -> None:
