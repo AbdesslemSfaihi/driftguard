@@ -8,9 +8,9 @@ right channel. DriftGuard states what happened; n8n decides who hears about it.
 GitHub ──webhook──▶ DriftGuard ──run──▶ docs PR / question on the PR
                         │
                         └──▶ POST event ──▶ n8n Webhook ──▶ Switch(severity)
-                                                              ├─ action ─▶ "please review / please answer"
-                                                              ├─ alert  ─▶ "the agent failed, replay it"
-                                                              └─ info   ─▶ log only (or nothing)
+                                                              ├─ action ─▶ e-mail "please review / please answer"
+                                                              ├─ alert  ─▶ e-mail "the agent failed, replay it"
+                                                              └─ info   ─▶ nothing
 ```
 
 ## The event
@@ -134,43 +134,48 @@ grep NOTIFY_WEBHOOK_TOKEN .env
 
    The node now has three outputs: action, alert, info.
 
-8. **Add the messages.** Choose one channel per output. Suggested:
-   - **action** → a Discord or Slack message to the maintainers.
-   - **alert** → the same channel with an alert prefix, or an e-mail to you.
-   - **info** → leave unconnected, or a **No Operation** node. Every merged PR
-     produces an `info` event when nothing drifted; nobody needs a ping for that.
+8. **Add the e-mails.** Notifications go out by e-mail through SMTP, with the
+   n8n **Send Email** node.
+   - **action** → an e-mail to the maintainers: "a docs PR is ready" or "a
+     question is waiting".
+   - **alert** → an e-mail with a warning subject: "the agent failed".
+   - **info** → leave unconnected. Every merged PR without drift produces an
+     `info` event; nobody needs an e-mail for that.
 
-   **Discord** (fastest, no app to register): in your Discord server, *Server
-   Settings → Integrations → Webhooks → New Webhook*, copy the webhook URL.
-   In n8n add a **Discord** node on the `action` output: *Connection Type*
-   `Webhook`, create a credential with that URL, *Operation* `Send a Message`,
-   and put this in *Message* (switch the field to *Expression*):
+   **SMTP credential (Gmail).** Gmail needs an *app password*, not your normal
+   password: turn on 2-Step Verification in your Google account, then open
+   https://myaccount.google.com/apppasswords, create one named `n8n`, and copy
+   the 16 characters. In n8n, on the Send Email node, *Credential* → *Create new
+   credential* → User = your Gmail address, Password = the app password,
+   Host `smtp.gmail.com`, Port `465`, SSL/TLS on. Save; n8n tests the connection.
+
+   **action e-mail**, fields switched to *Expression* where they contain `{{`:
+   - *From Email*: your Gmail address. *To Email*: whoever reviews the docs.
+   - *Subject*: `DriftGuard: action needed on PR #{{ $json.body.pr_number }}`
+   - *Email Format*: `Text`
+   - *Text*:
 
    ```
    {{ $json.body.summary }}
-   Story: {{ $json.body.story_url }}
-   {{ $json.body.docs_pr_url ? 'Review: ' + $json.body.docs_pr_url : 'Answer on: ' + $json.body.pr_url }}
+
+   Pull request:      {{ $json.body.pr_url }}
+   Docs PR to review: {{ $json.body.docs_pr_url || 'none' }}
+   Open questions:    {{ $json.body.open_questions }}
+   Full story:        {{ $json.body.story_url }}
    ```
 
-   **Slack** (incoming webhook): create an incoming webhook in your Slack
-   workspace, add an **HTTP Request** node: *Method* `POST`, *URL* the Slack
-   webhook URL, *Send Body* on, *Body Content Type* `JSON`, *Specify Body*
-   `Using JSON`, body:
+   **alert e-mail**: copy the node (Ctrl+C, Ctrl+V), connect it to the `alert`
+   output, and change the subject to
+   `⚠ DriftGuard failed on PR #{{ $json.body.pr_number }}`. The summary already
+   contains the replay command.
 
-   ```
-   {{ { "text": $json.body.summary + "\n" + $json.body.story_url } }}
-   ```
+9. **Run it once from the editor.** Open the action e-mail node and click
+   *Execute step*. The event from step 6 flows through the Switch and the
+   e-mail arrives (check the spam folder the first time).
 
-   For the `alert` output, duplicate the node and start the message with
-   `:rotating_light: ` or `⚠ `.
-
-9. **Run it once from the editor.** Click *Test workflow*. The event you sent
-   in step 6 flows through the Switch to the `action` branch and the message
-   arrives in your channel.
-
-10. **Activate.** Toggle *Inactive* → *Active* at the top right. From now on
-    the Production URL is live and every DriftGuard run produces one message
-    on the right branch.
+10. **Publish.** Click *Publish* at the top right (older n8n versions call this
+    the *Active* toggle). From now on the Production URL is live and every
+    DriftGuard run produces one e-mail on the right branch.
 
 ## Part 4 — prove it end to end
 
