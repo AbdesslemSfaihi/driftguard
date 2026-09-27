@@ -199,5 +199,14 @@ announces the follow-up PR.
   *Listen for test event* catches exactly one event; click it again.
 - **DriftGuard logs `notification … not delivered`**: n8n is not running, or
   the URL in `.env` is wrong. The run itself is unaffected.
+- **Send Email fails with `queryA ETIMEOUT smtp.gmail.com`**: n8n cannot look
+  up Gmail's address, even though the network is fine. Node, which n8n runs on,
+  uses its own DNS client, and on machines with VPN adapters it can pick up
+  `127.0.0.1` as its DNS server, which never answers. Check with
+  `node -e "console.log(require('dns').getServers())"`. Fix it for the n8n
+  process only: save a file containing
+  `require("dns").setServers(["1.1.1.1", "8.8.8.8"]);` (for example
+  `~/.n8n/dns-fix.cjs`) and start n8n with
+  `$env:NODE_OPTIONS = "--require C:\path	o\dns-fix.cjs"; npx n8n` in PowerShell.
 - **Story links do not open on another machine**: they are built from
   `PUBLIC_BASE_URL`, which defaults to `http://localhost:8000`.
