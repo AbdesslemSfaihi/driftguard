@@ -207,6 +207,6 @@ announces the follow-up PR.
   process only: save a file containing
   `require("dns").setServers(["1.1.1.1", "8.8.8.8"]);` (for example
   `~/.n8n/dns-fix.cjs`) and start n8n with
-  `$env:NODE_OPTIONS = "--require C:\path	o\dns-fix.cjs"; npx n8n` in PowerShell.
+  `$env:NODE_OPTIONS = "--require C:\Users\<you>\.n8n\dns-fix.cjs"; npx n8n` in PowerShell.
 - **Story links do not open on another machine**: they are built from
   `PUBLIC_BASE_URL`, which defaults to `http://localhost:8000`.
