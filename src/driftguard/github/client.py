@@ -33,6 +33,13 @@ class ChangedFile:
     previous_path: str | None  # set when status == "renamed"
 
 
+@dataclass(frozen=True)
+class PullRequestRef:
+    number: int
+    head: str  # head branch name
+    html_url: str
+
+
 class GitHubClient:
     def __init__(self, token: str, *, transport: httpx.BaseTransport | None = None):
         self._http = httpx.Client(
@@ -178,6 +185,45 @@ class GitHubClient:
         if response.status_code >= 400:
             raise GitHubError(response.status_code, response.text[:200])
         return response.json()["html_url"]
+
+    # ---------- demo and maintenance operations (cli/demo.py) ----------
+
+    def merge_pull_request(self, repo: str, number: int) -> str:
+        """Merge an open PR with a merge commit, like the GitHub button. Returns
+        the merge commit sha. GitHub then sends the same `pull_request closed`
+        webhook a human merge would."""
+        response = self._http.put(
+            f"/repos/{repo}/pulls/{number}/merge", json={"merge_method": "merge"}
+        )
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        return response.json()["sha"]
+
+    def open_pull_requests(self, repo: str) -> list[PullRequestRef]:
+        response = self._http.get(f"/repos/{repo}/pulls", params={"state": "open", "per_page": 100})
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        return [
+            PullRequestRef(pr["number"], pr["head"]["ref"], pr["html_url"])
+            for pr in response.json()
+        ]
+
+    def close_pull_request(self, repo: str, number: int) -> None:
+        response = self._http.patch(f"/repos/{repo}/pulls/{number}", json={"state": "closed"})
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+
+    def branches_with_prefix(self, repo: str, prefix: str) -> list[str]:
+        """Branch names starting with *prefix* ("demo/"), via matching-refs."""
+        response = self._http.get(f"/repos/{repo}/git/matching-refs/heads/{prefix}")
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
+        return [entry["ref"].removeprefix("refs/heads/") for entry in response.json()]
+
+    def delete_branch(self, repo: str, branch: str) -> None:
+        response = self._http.delete(f"/repos/{repo}/git/refs/heads/{branch}")
+        if response.status_code >= 400:
+            raise GitHubError(response.status_code, response.text[:200])
 
     def default_branch(self, repo: str) -> str:
         response = self._http.get(f"/repos/{repo}")
