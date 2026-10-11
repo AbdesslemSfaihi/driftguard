@@ -169,9 +169,32 @@ On the private demo repo `pyconnect-demo`, merged PR #7 (`deliver()` attempts
 Q1 on PR #7 about the FAQ answer that names no function. The maintainer's reply
 `Q1: yes, that FAQ answer is about deliver()` arrived as an `issue_comment`
 webhook and became follow-up PR #9, citing the answer as evidence. Only
-comments from OWNER / MEMBER / COLLABORATOR accounts count as answers.
-`scripts/demo/live_round_trip.py` drives this sequence; every delivery can be
-replayed offline with `python -m driftguard.cli.replay`.
+comments from OWNER / MEMBER / COLLABORATOR accounts count as answers. Every
+one of those deliveries can still be replayed offline with
+`python -m driftguard.cli.replay`.
+
+## Presentation demo (TinyBank)
+
+`pyconnect` is a realistic library, which makes it a poor story for a mixed
+audience. The defense uses **TinyBank** instead: a bank whose rules live in a
+plain-language handbook *and* in one Python file, side by side. "The minimum
+first deposit rises from 100 to 150 EUR" is a change anyone can follow.
+
+- `demo/tinybank/` is the baseline of the demo repository: the code, the
+  handbook, a FAQ written for customers (it states the value but never names
+  the rule, so DriftGuard asks instead of guessing) and a changelog (which
+  DriftGuard must recognise as history and leave alone).
+- `python -m driftguard.cli.demo` drives the live run: `preflight` checks the
+  five things the demo needs, `reset` puts the repository back to the
+  baseline so rehearsals repeat exactly, `merge <scenario>` opens and merges a
+  scripted pull request, `wait` follows the run, `answer` replies as the
+  maintainer. One scenario per drift kind; the headline one is
+  `minimum-deposit`.
+- The scenario table is tested offline (`tests/test_demo_cli.py`): every edit
+  applies to the baseline exactly once and yields the promised facts.
+
+Minute-by-minute script, setup, fallbacks and the questions a jury tends to
+ask: [docs/presentation-demo.md](docs/presentation-demo.md).
 
 ## Notifications (n8n)
 
@@ -204,5 +227,6 @@ src/driftguard/
 ├── story.py    the run story as data — read model shared by the page
 │               and the notifications                              (week 4 ✓)
 ├── notify.py   one JSON event per finished run, routed by n8n     (week 4 ✓)
-└── cli/        replay + index + evaluate + notify tools           (week 1 ✓)
+└── cli/        replay + index + evaluate + notify + demo tools    (week 1 ✓)
+demo/tinybank/  baseline of the presentation demo repository      (week 4 ✓)
 ```
